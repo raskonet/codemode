@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:6-alpine
+    container_name: duelz_redis
+    restart: unless-stopped
+    networks:
+      - duelz_default_net
+
+  db:
+    image: postgres:14-alpine
+    container_name: duelz_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: judge0_user
+      POSTGRES_PASSWORD: your_secure_judge0_db_password # Replace this!
+      POSTGRES_DB: judge0_production
+    volumes:
+      - postgres_data_duelz:/var/lib/postgresql/data
+    networks:
+      - duelz_default_net
+
+  judge0:
+    image: judge0/judge0:latest
+    container_name: duelz_judge0
+    restart: unless-stopped
+    ports:
+      - "${JUDGE0_HOST_PORT:-3000}:2358"
+    env_file:
+      - .env
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: "your_actual_strong_random_secret_key_base_here" # Replace this!
+      DATABASE_URL: "postgresql://judge0_user:your_secure_judge0_db_password@db:5432/judge0_production" # Use same password as above
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - duelz_default_net
+
+networks:
+  duelz_default_net:
+    driver: bridge
+
+volumes:
+  postgres_data_duelz:
