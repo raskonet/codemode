@@ -6,7 +6,7 @@ dotenv.config();
 
 const JUDGE0_URL =
   process.env.JUDGE0_URL ||
-  `http://localhost:${process.env.JUDGE0_PORT || "3000"}`; // Default Judge0 port is 2358
+  `http://localhost:${process.env.JUDGE0_PORT || "2358"}`; // Default Judge0 port
 const JUDGE0_KEY = process.env.JUDGE0_SECRET!;
 const LANGUAGE_IDS: Record<string, number> = {
   cpp: 54,
@@ -20,14 +20,20 @@ interface TsTestCase {
 }
 
 interface TsProblem {
-  id: string;
+  id: string; // Will be titleSlug for LeetCode
   title: string;
   description: string;
   tests: TsTestCase[];
 }
 
+// For LeetCode problem stubs (title and titleSlug)
+interface TsLeetProblemStub {
+  title: string;
+  titleSlug: string;
+}
+
 const cache: {
-  leetProblems?: TsProblem[];
+  leetProblemStubs?: TsLeetProblemStub[];
   cfProblems?: TsProblem[];
 } = {};
 
@@ -52,14 +58,12 @@ interface Judge0SubmissionResult {
   stderr: string | null;
   compile_output: string | null;
   message: string | null;
-  time: string | null; // Judge0 returns time as string, e.g., "0.002"
-  memory: number | null; // Judge0 returns memory in KB
+  time: string | null;
+  memory: number | null;
   status: Judge0Status;
   token: string;
-  // Other fields like wall_time, exit_code, exit_signal might also be present
 }
 
-// GraphQL schema definition
 const typeDefs = gql`
   type Query {
     randomProblem(platform: String!): Problem!
@@ -108,90 +112,181 @@ const typeDefs = gql`
 `;
 
 /**
- * Fetch problems and sample tests from LeetCode
+ * Fetches a list of LeetCode problem stubs (title and titleSlug).
  */
-async function fetchLeetProblems(): Promise<TsProblem[]> {
-  if (cache.leetProblems) return cache.leetProblems;
+async function fetchLeetProblemStubs(): Promise<TsLeetProblemStub[]> {
+  if (cache.leetProblemStubs) {
+    return cache.leetProblemStubs;
+  }
 
-  // This is the GraphQL query string for LeetCode API
   const leetCodeGraphQLQuery = `
-    query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
-      problemsetQuestionList(categorySlug: $categorySlug, limit: $limit, skip: $skip, filters: $filters) {
-        questions: data {
-          titleSlug
+    query problemsetQuestionListV2($categorySlug: String, $limit: Int, $skip: Int) {
+      problemsetQuestionListV2(categorySlug: $categorySlug, limit: $limit, skip: $skip) {
+        questions {
           title
-          content
-          sampleTestCase
+          titleSlug
         }
       }
     }`;
 
-  const variables = { categorySlug: "", limit: 50, skip: 0, filters: {} }; // Example variables
+  const variables = {
+    categorySlug: "",
+    limit: 100,
+    skip: 0,
+  };
 
   const res = await fetch("https://leetcode.com/graphql", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Referer: "https://leetcode.com/", // LeetCode might require a referer or other headers
+      Referer: "https://leetcode.com/",
     },
     body: JSON.stringify({ query: leetCodeGraphQLQuery, variables }),
   });
 
   if (!res.ok) {
-    console.error("LeetCode API request failed:", res.status, await res.text());
-    throw new Error(`Failed to fetch from LeetCode: ${res.status}`);
+    const errorBody = await res.text();
+    console.error(
+      "LeetCode API request for stubs failed:",
+      res.status,
+      errorBody,
+    );
+    console.error("Failing Query (stubs):", leetCodeGraphQLQuery);
+    console.error("Failing Variables (stubs):", JSON.stringify(variables));
+    throw new Error(
+      `Failed to fetch problem stubs from LeetCode: ${res.status} - ${errorBody}`,
+    );
   }
 
   const json = (await res.json()) as {
     data?: {
-      problemsetQuestionList?: {
+      problemsetQuestionListV2?: {
         questions: Array<{
-          titleSlug: string;
           title: string;
-          content: string;
-          sampleTestCase: string;
+          titleSlug: string;
         }>;
       };
     };
   };
 
-  // Added more robust error handling for LeetCode response structure
-  const questions = json.data?.problemsetQuestionList?.questions;
-  if (!questions) {
-    console.error("Unexpected LeetCode API response structure:", json);
-    cache.leetProblems = []; // Cache empty result to prevent re-fetch on immediate error
+  const questionsData = json.data?.problemsetQuestionListV2?.questions; // Renamed to avoid conflict if any `questions` was global
+  if (!questionsData) {
+    console.error(
+      "Unexpected LeetCode API response structure for stubs:",
+      json,
+    );
+    cache.leetProblemStubs = [];
     return [];
   }
 
-  const problems: TsProblem[] = questions.map((q) => {
-    const lines = q.sampleTestCase
-      ? q.sampleTestCase.split(/\r?\n/).filter(Boolean)
-      : [];
-    const tests: TsTestCase[] = [];
-    for (let i = 0; i + 1 < lines.length; i += 2) {
-      // Basic parsing, might need adjustment based on actual sampleTestCase variations
-      tests.push({
-        stdin: lines[i].replace(/^Input:\s*/i, "").trim(),
-        expected: lines[i + 1].replace(/^Output:\s*/i, "").trim(),
-      });
-    }
-    return {
-      id: q.titleSlug,
-      title: q.title,
-      description: q.content || "",
-      tests,
-    };
+  // Explicitly type `q` if inference is problematic, or ensure `questionsData` is well-typed.
+  // Given the type assertion for `json`, `q` should be inferred correctly here.
+  const stubs: TsLeetProblemStub[] = questionsData.map((q) => ({
+    title: q.title,
+    titleSlug: q.titleSlug,
+  }));
+
+  cache.leetProblemStubs = stubs;
+  return stubs;
+}
+
+/**
+ * Fetches full details for a single LeetCode problem.
+ */
+async function fetchLeetProblemDetails(titleSlug: string): Promise<TsProblem> {
+  const leetCodeQuestionDetailQuery = `
+    query questionData($titleSlug: String!) {
+      question(titleSlug: $titleSlug) {
+        title
+        titleSlug
+        content
+        sampleTestCase
+        exampleTestcases # Fallback or alternative for sample tests
+      }
+    }`;
+  const variables = { titleSlug };
+
+  const res = await fetch("https://leetcode.com/graphql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Referer: "https://leetcode.com/",
+    },
+    body: JSON.stringify({ query: leetCodeQuestionDetailQuery, variables }),
   });
-  cache.leetProblems = problems;
-  return problems;
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+    console.error(
+      `LeetCode API request for problem details (${titleSlug}) failed:`,
+      res.status,
+      errorBody,
+    );
+    console.error("Failing Query (details):", leetCodeQuestionDetailQuery);
+    console.error("Failing Variables (details):", JSON.stringify(variables));
+    throw new Error(
+      `Failed to fetch problem details from LeetCode for ${titleSlug}: ${res.status} - ${errorBody}`,
+    );
+  }
+
+  const json = (await res.json()) as {
+    data?: {
+      question?: {
+        title: string;
+        titleSlug: string;
+        content: string | null;
+        sampleTestCase: string | null;
+        exampleTestcases: string | null;
+      };
+    };
+  };
+
+  const questionData = json.data?.question;
+  if (!questionData) {
+    console.error(
+      `Unexpected LeetCode API response structure for problem details (${titleSlug}):`,
+      json,
+    );
+    throw new Error(
+      `Could not retrieve details for LeetCode problem: ${titleSlug}`,
+    );
+  }
+
+  const tests: TsTestCase[] = [];
+  const testCaseStr =
+    questionData.sampleTestCase || questionData.exampleTestcases;
+
+  if (testCaseStr) {
+    const lines = testCaseStr.split(/\r?\n/).filter(Boolean);
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      let stdin = lines[i].replace(/^Input:\s*/i, "").trim();
+      let expected = lines[i + 1].replace(/^Output:\s*/i, "").trim();
+      tests.push({ stdin, expected });
+    }
+  } else {
+    console.warn(
+      `No sample test cases found for LeetCode problem: ${titleSlug}`,
+    );
+  }
+
+  return {
+    id: questionData.titleSlug,
+    title: questionData.title,
+    description: questionData.content || "No description provided.",
+    tests,
+  };
 }
 
 /**
  * Fetch problems and sample tests from Codeforces
  */
 async function fetchCFProblems(): Promise<TsProblem[]> {
-  if (cache.cfProblems) return cache.cfProblems;
+  if (cache.cfProblems) {
+    return cache.cfProblems;
+  }
+
   const res = await fetch("https://codeforces.com/api/problemset.problems");
+
   if (!res.ok) {
     console.error(
       "Codeforces API request failed:",
@@ -200,17 +295,17 @@ async function fetchCFProblems(): Promise<TsProblem[]> {
     );
     throw new Error(`Failed to fetch from Codeforces: ${res.status}`);
   }
+
   const json = (await res.json()) as {
     status: string;
     result?: {
-      // Made result optional for safety
       problems: Array<{
         contestId: number;
         index: string;
         name: string;
         tags: string[];
-      }>; // statement is not directly available here, full problem parsing is complex
-      problemStatistics: Array<any>; // Not used here, but part of the response
+      }>;
+      problemStatistics: Array<any>;
     };
   };
 
@@ -220,15 +315,12 @@ async function fetchCFProblems(): Promise<TsProblem[]> {
     return [];
   }
 
-  const questions = json.result.problems;
-  // Note: Codeforces problemset.problems API does NOT return sample tests or full statements directly.
-  // You'd typically need to scrape individual problem pages for that, which is much more complex.
-  // For this example, we'll create problems with empty descriptions and tests.
-  const problems: TsProblem[] = questions.map((p) => ({
+  const cfQuestions = json.result.problems; // Renamed to avoid potential conflict
+  const problems: TsProblem[] = cfQuestions.map((p) => ({
     id: `${p.contestId}${p.index}`,
     title: p.name,
-    description: `Problem from Codeforces: ${p.contestId}${p.index}. Tags: ${p.tags.join(", ")}. (Full description and tests require scraping)`,
-    tests: [], // Sample tests are not in this API endpoint
+    description: `Problem from Codeforces: ${p.contestId}${p.index}. Tags: ${p.tags.join(", ")}. (Full description and tests require scraping or a different API endpoint for Codeforces, not included in this basic fetcher).`,
+    tests: [],
   }));
   cache.cfProblems = problems;
   return problems;
@@ -244,7 +336,6 @@ async function runJudge0Batch(
 ): Promise<Judge0SubmissionResult[]> {
   const languageId = LANGUAGE_IDS[lang.toLowerCase()];
   if (languageId === undefined) {
-    // Consider throwing a UserInputError for GraphQL
     throw new Error(
       `Unsupported language: ${lang}. Supported languages are: ${Object.keys(LANGUAGE_IDS).join(", ")}`,
     );
@@ -254,7 +345,7 @@ async function runJudge0Batch(
     source_code: code,
     language_id: languageId,
     stdin: t.stdin,
-    expected_output: t.expected, // Judge0 uses expected_output for comparison
+    expected_output: t.expected,
   }));
 
   const resp = await fetch(
@@ -263,10 +354,7 @@ async function runJudge0Batch(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // Judge0 CE v0.7.0+ uses 'X-Auth-Token' for RAPID API KEY if configured
-        // For self-hosted Judge0 instances, API key might not be needed or might be different.
-        // 'X-Judge0-User': 'YOUR_JUDGE0_USER_HEADER_IF_NEEDED'
-        ...(JUDGE0_KEY && { "X-Auth-Token": JUDGE0_KEY }), // Only add if JUDGE0_KEY is set
+        ...(JUDGE0_KEY && { "X-Auth-Token": JUDGE0_KEY }),
       },
       body: JSON.stringify({ submissions }),
     },
@@ -278,7 +366,6 @@ async function runJudge0Batch(
     throw new Error(`Judge0 submission failed: ${resp.status} - ${errorBody}`);
   }
 
-  // Judge0 batch response is directly an array of submission results when wait=true
   const results = (await resp.json()) as Judge0SubmissionResult[];
   return results;
 }
@@ -287,29 +374,39 @@ async function runJudge0Batch(
 const resolvers = {
   Query: {
     randomProblem: async (
-      _: unknown,
+      _source: unknown, // _source (or parent) is the first argument
       args: { platform: string },
     ): Promise<TsProblem> => {
-      let arr: TsProblem[];
       if (args.platform.toLowerCase() === "leetcode") {
-        arr = await fetchLeetProblems();
+        const stubs = await fetchLeetProblemStubs();
+        if (stubs.length === 0) {
+          throw new Error(
+            "No problem stubs fetched from LeetCode or platform is temporarily unavailable.",
+          );
+        }
+        const randomStub = stubs[Math.floor(Math.random() * stubs.length)];
+        return fetchLeetProblemDetails(randomStub.titleSlug);
       } else if (args.platform.toLowerCase() === "codeforces") {
-        arr = await fetchCFProblems();
+        const arr = await fetchCFProblems();
+        if (arr.length === 0) {
+          throw new Error(
+            "No problems fetched from Codeforces or platform is temporarily unavailable.",
+          );
+        }
+        return arr[Math.floor(Math.random() * arr.length)];
       } else {
         throw new Error(
           'Unsupported platform. Choose "leetcode" or "codeforces".',
         );
       }
-      if (arr.length === 0) {
-        throw new Error(
-          `No problems fetched from ${args.platform} or platform is temporarily unavailable.`,
-        );
-      }
-      return arr[Math.floor(Math.random() * arr.length)];
     },
   },
   Mutation: {
-    judgeSubmission: async (_: unknown, args: { input: TsJudgeInput }) => {
+    judgeSubmission: async (
+      _source: unknown, // _source (or parent) is the first argument
+      args: { input: TsJudgeInput },
+    ): Promise<{ passed: boolean; details: any[] }> => {
+      // Added return type for clarity
       const { code, lang, tests } = args.input;
       if (!tests || tests.length === 0) {
         throw new Error("No test cases provided for submission.");
@@ -323,8 +420,8 @@ const resolvers = {
           status: r.status.description,
           stdout: r.stdout,
           stderr: r.stderr,
-          time: r.time ? parseFloat(r.time) : null, // Convert string time to Float
-          memory: r.memory, // Memory is already a number (in KB)
+          time: r.time ? parseFloat(r.time) : null,
+          memory: r.memory,
         }),
       );
 
