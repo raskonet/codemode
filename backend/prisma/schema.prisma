@@ -1,0 +1,58 @@
+// backend/prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("APP_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  rating       Int      @default(1200)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations for duel matches
+  matchesAsPlayerOne DuelMatch[] @relation("PlayerOneMatches")
+  matchesAsPlayerTwo DuelMatch[] @relation("PlayerTwoMatches")
+  // No direct 'wonMatches' needed if we determine winner in DuelMatch
+}
+
+// New model for storing duel outcomes for ELO and history
+model DuelMatch {
+  id              String @id @default(cuid()) // cuid is a good default for IDs
+  duelId          String // The ID of the duel room from your activeDuels map
+  problemTitle    String // Title of the problem played
+  problemPlatform String // e.g., "leetcode", "codeforces"
+
+  playerOneId String @db.Uuid
+  playerTwoId String @db.Uuid
+
+  // Store scores: 1 for win, 0.5 for draw, 0 for loss
+  playerOneScore Float
+  playerTwoScore Float
+
+  playerOneOldRating Int
+  playerOneNewRating Int
+  playerTwoOldRating Int
+  playerTwoNewRating Int
+
+  playedAt DateTime @default(now())
+
+  playerOne User @relation("PlayerOneMatches", fields: [playerOneId], references: [id])
+  playerTwo User @relation("PlayerTwoMatches", fields: [playerTwoId], references: [id])
+
+  @@index([duelId])
+  @@index([playerOneId])
+  @@index([playerTwoId])
+  @@index([playedAt])
+}
+
+// Your existing Question, Submission, etc. models can be added here later if you
+// decide to persist problems from LeetCode/CF or detailed submission data beyond Judge0.
+// For now, we only need User and DuelMatch for ELO.
