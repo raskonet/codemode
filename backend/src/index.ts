@@ -414,16 +414,40 @@ const resolvers = {
 
       const rawResults = await runJudge0Batch(tests, code, lang);
 
-      const details = rawResults.map(
-        (r: Judge0SubmissionResult, i: number) => ({
+      // Log the raw results from Judge0 to understand its structure
+      console.log("Judge0 Raw Results:", JSON.stringify(rawResults, null, 2));
+
+      const details = rawResults.map((r: Judge0SubmissionResult, i: number) => {
+        let statusText = "Unknown Status"; // Default value
+
+        if (r && r.status && typeof r.status.description === "string") {
+          statusText = r.status.description;
+        } else {
+          // Log if the status structure is not as expected
+          console.warn(
+            `Unexpected status structure for rawResult at index ${i}:`,
+            r,
+          );
+          // Provide a more specific status if possible based on other fields
+          if (r && r.compile_output) {
+            statusText = "Compilation Error";
+          } else if (r && r.stderr && !r.stdout) {
+            // Often indicates a runtime error
+            statusText = "Runtime Error";
+          } else if (!r.status) {
+            statusText = "Error: Status object missing";
+          }
+        }
+
+        return {
           index: i,
-          status: r.status.description,
+          status: statusText,
           stdout: r.stdout,
           stderr: r.stderr,
           time: r.time ? parseFloat(r.time) : null,
           memory: r.memory,
-        }),
-      );
+        };
+      });
 
       const passed = details.every((d) => d.status === "Accepted");
       return { passed, details };
