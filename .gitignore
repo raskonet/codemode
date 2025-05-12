@@ -1,2 +1,6 @@
 .env
 node_modules
+judge0_load_config.sh
+judge0_server_script.sh
+judge0_startup_logs.txt
+
