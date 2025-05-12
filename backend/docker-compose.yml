@@ -3,18 +3,18 @@ version: "3.8"
 services:
   redis:
     image: redis:6-alpine
-    container_name: duelz_redis
+    container_name: duelz_redis_c # Changed for clarity, service name is 'redis'
     restart: unless-stopped
     networks:
       - duelz_default_net
 
   db:
     image: postgres:14-alpine
-    container_name: duelz_db
+    container_name: duelz_db_c # Changed for clarity, service name is 'db'
     restart: unless-stopped
     environment:
       POSTGRES_USER: judge0_user
-      POSTGRES_PASSWORD: your_secure_judge0_db_password # Replace this!
+      POSTGRES_PASSWORD: 123456 # Ensure this matches password in DATABASE_URL from .env
       POSTGRES_DB: judge0_production
     volumes:
       - postgres_data_duelz:/var/lib/postgresql/data
@@ -23,17 +23,31 @@ services:
 
   judge0:
     image: judge0/judge0:latest
-    container_name: duelz_judge0
+    container_name: duelz_judge0_c
     restart: unless-stopped
+    privileged: true
     ports:
       - "${JUDGE0_HOST_PORT:-3000}:2358"
     env_file:
       - .env
-    environment:
-      RAILS_ENV: production
-      SECRET_KEY_BASE: "your_actual_strong_random_secret_key_base_here" # Replace this!
-      DATABASE_URL: "postgresql://judge0_user:your_secure_judge0_db_password@db:5432/judge0_production" # Use same password as above
-      REDIS_URL: "redis://redis:6379/0"
+    command: >
+      bash -c "
+        echo '--- Judge0 Custom Command Start ---' &&
+        echo '[Step 1] Sourcing /api/scripts/load-config ...' &&
+        source /api/scripts/load-config && # This exports QUEUE and COUNT
+        
+        echo \"[Step 2] Current shell ENV check: QUEUE_VAR='${QUEUE}', JUDGE0_VERSION_VAR='${JUDGE0_VERSION}', COUNT_VAR='${COUNT}', REDIS_URL_VAR='${REDIS_URL}', REDIS_HOST_VAR='${REDIS_HOST}', REDIS_PORT_VAR='${REDIS_PORT}'\" &&
+        
+        echo '[Step 3] Attempting to start Resque workers in background...' &&
+        # The QUEUE and COUNT variables are now exported by 'source load-config'
+        # The rake task should pick them up from the environment.
+        # We are also explicitly setting RAILS_ENV for the rake task.
+        (cd /api && RAILS_ENV=\"${RAILS_ENV:-production}\" bundle exec rake resque:workers TERM_CHILD=1 VERBOSE=1 >> /tmp/resque-workers.log 2>&1 &) &&
+        
+        echo '[Step 4] Resque workers supposedly started (logs in /tmp/resque-workers.log).' &&
+        echo '[Step 5] Now starting original server script (/api/scripts/server)...' &&
+        exec /api/scripts/server
+      "
     depends_on:
       - db
       - redis
