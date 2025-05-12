@@ -8,6 +8,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum TournamentStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum PairingSystem {
+  RANDOM
+  SWISS
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   username     String   @unique
@@ -17,23 +29,64 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // Relations for duel matches
   matchesAsPlayerOne DuelMatch[] @relation("PlayerOneMatches")
   matchesAsPlayerTwo DuelMatch[] @relation("PlayerTwoMatches")
-  // No direct 'wonMatches' needed if we determine winner in DuelMatch
+
+  // Corrected back-relation: Name the relation for clarity
+  // This side does NOT define 'fields' because User doesn't hold the foreign key for this.
+  organizedTournaments     Tournament[]            @relation("UserOrganizedTournaments")
+  tournamentParticipations TournamentParticipant[]
 }
 
-// New model for storing duel outcomes for ELO and history
+model Tournament {
+  id          String @id @default(cuid())
+  name        String
+  organizerId String @db.Uuid
+  // This is the side that defines the foreign key relationship
+  organizer   User   @relation("UserOrganizedTournaments", fields: [organizerId], references: [id])
+
+  status        TournamentStatus @default(PENDING)
+  pairingSystem PairingSystem    @default(RANDOM)
+
+  maxParticipants   Int?
+  hasVideo          Boolean  @default(false)
+  problemSetType    String   @default("RANDOM_LEETCODE")
+  curatedProblemIds String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants TournamentParticipant[]
+
+  @@index([organizerId])
+  @@index([status])
+}
+
+model TournamentParticipant {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+
+  joinedAt DateTime @default(now())
+  isActive Boolean  @default(true)
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId])
+  @@index([userId])
+}
+
 model DuelMatch {
-  id              String @id @default(cuid()) // cuid is a good default for IDs
-  duelId          String // The ID of the duel room from your activeDuels map
-  problemTitle    String // Title of the problem played
-  problemPlatform String // e.g., "leetcode", "codeforces"
+  id              String @id @default(cuid())
+  duelId          String
+  problemTitle    String
+  problemPlatform String
 
   playerOneId String @db.Uuid
   playerTwoId String @db.Uuid
 
-  // Store scores: 1 for win, 0.5 for draw, 0 for loss
   playerOneScore Float
   playerTwoScore Float
 
@@ -52,7 +105,3 @@ model DuelMatch {
   @@index([playerTwoId])
   @@index([playedAt])
 }
-
-// Your existing Question, Submission, etc. models can be added here later if you
-// decide to persist problems from LeetCode/CF or detailed submission data beyond Judge0.
-// For now, we only need User and DuelMatch for ELO.
