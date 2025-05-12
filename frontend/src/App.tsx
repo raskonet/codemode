@@ -24,6 +24,7 @@ import CreateTournamentPage from "./pages/CreateTournamentPage";
 import TournamentsListPage from "./pages/TournamentsListPage";
 import TournamentHallPage from "./pages/TournamentHallPage";
 
+/*
 const TournamentHallPage = () => (
   <div className="p-6 text-white bg-gray-850 min-h-screen">
     <h1 className="text-3xl font-bold text-sky-400">Tournament Hall</h1>
@@ -36,6 +37,7 @@ const TournamentHallPage = () => (
     </p>
   </div>
 );
+*/
 
 function App() {
   const router = createBrowserRouter(

@@ -33,8 +33,9 @@ if (!JWT_SECRET) {
 }
 const TOKEN_COOKIE_NAME = "duelz_token";
 const HASH_SALT_ROUNDS = 10;
-const K_FACTOR = 32;
+const K_FACTOR = 32; // ELO K-factor
 
+// --- Your existing Interfaces ---
 interface TsTestCase {
   stdin: string;
   expected: string;
@@ -90,6 +91,7 @@ interface Judge0SubmissionResult {
   token: string;
 }
 
+// --- Your existing Duel & Hall States/Types ---
 type CompetitorRole = "competitor1" | "competitor2";
 type UserRole = CompetitorRole | "spectator";
 interface DuelCompetitor {
@@ -110,9 +112,8 @@ interface DuelRoom {
   winner?: string | null;
   startTime?: number;
   tournamentId?: string;
-}
+} // Added tournamentId
 const activeDuels = new Map<string, DuelRoom>();
-
 interface HallParticipant {
   socketId: string;
   userId: string;
@@ -126,15 +127,16 @@ interface TournamentHall {
 }
 const activeHalls = new Map<string, TournamentHall>();
 
+// --- GraphQL Type Definitions (from your last provided version) ---
 const typeDefs = gql`
   scalar DateTime
   type Query {
     randomProblem(platform: String!): Problem!
     me: User
     listProblems(limit: Int = 20): [ProblemStub!]!
-    recentMatches(userId: ID!, limit: Int = 10): [DuelMatch!]
-    getTournament(tournamentId: ID!): Tournament
-    listTournaments(status: TournamentStatus): [Tournament!]
+    recentMatches(userId: ID!, limit: Int = 10): [DuelMatch!] # Ensure DuelMatch is defined
+    getTournament(tournamentId: ID!): Tournament # Ensure Tournament is defined
+    listTournaments(status: TournamentStatus): [Tournament!] # Ensure TournamentStatus is defined
   }
   type Mutation {
     signup(username: String!, email: String!, password: String!): AuthPayload!
@@ -145,7 +147,7 @@ const typeDefs = gql`
       name: String!
       maxParticipants: Int
       hasVideo: Boolean
-      problemSetType: String
+      problemSetType: String # Should match enum if defined, e.g., ProblemSetTypeEnum
       curatedProblemIds: [String!]
     ): Tournament!
   }
@@ -154,7 +156,7 @@ const typeDefs = gql`
     username: String!
     email: String!
     rating: Int!
-    createdAt: String!
+    createdAt: String! # Consider DateTime scalar
   }
   type AuthPayload {
     token: String!
@@ -164,12 +166,12 @@ const typeDefs = gql`
     id: ID!
     title: String!
     platform: String!
-    difficulty: String
+    difficulty: String # This is often not available in stub APIs
     tags: [String!]
   }
   type DuelMatch {
     id: ID!
-    duelId: String!
+    duelId: String! # Added field for clarity
     problemTitle: String!
     problemPlatform: String!
     playerOne: User!
@@ -180,7 +182,7 @@ const typeDefs = gql`
     playerOneNewRating: Int!
     playerTwoOldRating: Int!
     playerTwoNewRating: Int!
-    playedAt: DateTime!
+    playedAt: DateTime! # Consider DateTime scalar
   }
   enum TournamentStatus {
     PENDING
@@ -191,7 +193,9 @@ const typeDefs = gql`
   enum PairingSystem {
     RANDOM
     SWISS
-  }
+  } # Ensure this is defined in Prisma schema as well
+  # enum ProblemSetTypeEnum { RANDOM_LEETCODE RANDOM_CODEFORCES CURATED } # Example if you want strong typing
+
   type Tournament {
     id: ID!
     name: String!
@@ -200,16 +204,16 @@ const typeDefs = gql`
     pairingSystem: PairingSystem!
     maxParticipants: Int
     hasVideo: Boolean!
-    problemSetType: String!
+    problemSetType: String! # Or ProblemSetTypeEnum!
     curatedProblemIds: [String!]
-    createdAt: DateTime!
-    participants: [TournamentParticipant!]
+    createdAt: DateTime! # Consider DateTime scalar
+    participants: [TournamentParticipant!] # List of participants
   }
-  type TournamentParticipant {
-    id: ID!
+  type TournamentParticipant { # Represents a user's participation in a tournament
+    id: ID! # Prisma record ID
     user: User!
-    joinedAt: DateTime!
-    isActive: Boolean!
+    joinedAt: DateTime! # Consider DateTime scalar
+    isActive: Boolean! # If they are still active (not kicked/left)
   }
   type CodeSnippet {
     lang: String!
@@ -262,22 +266,21 @@ const typeDefs = gql`
   }
 `;
 
+// --- Helper Functions (ELO, Problem Fetching, Judging) ---
 function calculateElo(
   ratingA: number,
   ratingB: number,
   scoreA: number,
 ): { newRatingA: number; newRatingB: number } {
-  /* ... */
   const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  const expectedB = 1 - expectedA;
-  const scoreB = 1 - scoreA;
+  const expectedB = 1 - expectedA; // Or 1 / (1 + 10^((R_a - R_b)/400))
+  const scoreB = 1 - scoreA; // Assuming S_a + S_b = 1
   const newRatingA = Math.round(ratingA + K_FACTOR * (scoreA - expectedA));
   const newRatingB = Math.round(ratingB + K_FACTOR * (scoreB - expectedB));
   return { newRatingA, newRatingB };
 }
-
 async function fetchLeetProblemStubs(): Promise<TsLeetProblemStub[]> {
-  /* ... */
+  /* Copied from your provided code */
   if (cache.leetProblemStubs) return cache.leetProblemStubs;
   const query = `query problemsetQuestionListV2($categorySlug: String, $limit: Int, $skip: Int) { problemsetQuestionListV2(categorySlug: $categorySlug, limit: $limit, skip: $skip) { questions { title titleSlug } } }`;
   const vars = { categorySlug: "", limit: 100, skip: 0 };
@@ -308,7 +311,7 @@ async function fetchLeetProblemStubs(): Promise<TsLeetProblemStub[]> {
   return stubs;
 }
 async function fetchLeetProblemDetails(titleSlug: string): Promise<TsProblem> {
-  /* ... */
+  /* Copied from your provided code */
   const query = `query questionData($titleSlug: String!) { question(titleSlug: $titleSlug) { title titleSlug content sampleTestCase exampleTestcases codeSnippets { lang langSlug code } metaData } }`;
   const vars = { titleSlug };
   const res = await fetch("https://leetcode.com/graphql", {
@@ -361,7 +364,7 @@ async function fetchLeetProblemDetails(titleSlug: string): Promise<TsProblem> {
   };
 }
 async function fetchCFProblems(): Promise<TsProblem[]> {
-  /* ... */
+  /* Copied from your provided code */
   if (cache.cfProblems) return cache.cfProblems;
   const res = await fetch("https://codeforces.com/api/problemset.problems");
   if (!res.ok) {
@@ -390,7 +393,7 @@ async function runJudge0Batch(
   lang: string,
   leetCodeData?: TsLeetCodeProblemDataInput,
 ): Promise<Judge0SubmissionResult[]> {
-  /* ... */
+  /* Copied from your provided code */
   const languageId = LANGUAGE_IDS[lang.toLowerCase()];
   if (languageId === undefined) {
     throw new UserInputError(
@@ -549,25 +552,28 @@ async function runJudge0Batch(
   return finalResults;
 }
 
+// --- Resolvers (Your existing ones + New Auth/Tournament resolvers) ---
 const resolvers = {
   Query: {
     me: async (
-      _p: any,
-      _a: any,
-      ctx: { userId?: string; prisma: typeof prisma },
+      _parent: any,
+      _args: any,
+      context: { userId?: string; prisma: typeof prisma },
     ) => {
-      if (!ctx.userId) return null;
-      const user = await ctx.prisma.user.findUnique({
-        where: { id: ctx.userId },
+      /* Copied from your provided code */
+      if (!context.userId) return null;
+      const user = await context.prisma.user.findUnique({
+        where: { id: context.userId },
       });
       if (!user) return null;
       const { passwordHash, ...userData } = user;
       return userData;
     },
     randomProblem: async (
-      _p: unknown,
+      _parent: unknown,
       args: { platform: string },
     ): Promise<TsProblem> => {
+      /* Copied from your provided code */
       if (args.platform.toLowerCase() === "leetcode") {
         const stubs = await fetchLeetProblemStubs();
         if (stubs.length === 0)
@@ -583,12 +589,13 @@ const resolvers = {
       throw new UserInputError("Unsupported platform.");
     },
     listProblems: async (
-      _p: any,
+      _parent: any,
       args: { limit?: number },
-      ctx: { prisma: typeof prisma },
+      context: { prisma: typeof prisma },
     ): Promise<
       Array<Partial<TsProblem & { difficulty?: string; tags?: string[] }>>
     > => {
+      /* Copied from your provided code */
       const limit = args.limit || 20;
       const leetStubsPromise = fetchLeetProblemStubs().catch((err) => {
         console.error("ListProblems: LeetCode fetch failed:", err.message);
@@ -622,16 +629,18 @@ const resolvers = {
       return combined.sort(() => 0.5 - Math.random()).slice(0, limit);
     },
     recentMatches: async (
-      _p: any,
+      _parent: any,
       args: { userId: string; limit?: number },
-      ctx: { prisma: typeof prisma },
+      context: { prisma: typeof prisma },
     ) => {
+      /* Copied from your provided code */
       if (!args.userId)
         throw new UserInputError(
           "User ID is required to fetch recent matches.",
         );
       const limit = args.limit || 10;
-      return ctx.prisma.duelMatch.findMany({
+      return context.prisma.duelMatch.findMany({
+        // This will error if DuelMatch is not in Prisma schema
         where: {
           OR: [{ playerOneId: args.userId }, { playerTwoId: args.userId }],
         },
@@ -644,21 +653,25 @@ const resolvers = {
       });
     },
     getTournament: async (
-      _p: any,
+      _parent: any,
       { tournamentId }: { tournamentId: string },
-      ctx: { prisma: typeof prisma },
+      context: { prisma: typeof prisma },
     ) => {
-      return ctx.prisma.tournament.findUnique({
+      /* Copied from your provided code */
+      return context.prisma.tournament.findUnique({
+        // This will error if Tournament is not in Prisma schema
         where: { id: tournamentId },
         include: { organizer: true, participants: { include: { user: true } } },
       });
     },
     listTournaments: async (
-      _p: any,
+      _parent: any,
       { status }: { status?: TournamentStatus },
-      ctx: { prisma: typeof prisma },
+      context: { prisma: typeof prisma },
     ) => {
-      return ctx.prisma.tournament.findMany({
+      /* Copied from your provided code */
+      return context.prisma.tournament.findMany({
+        // This will error if Tournament is not in Prisma schema
         where: status
           ? { status }
           : {
@@ -673,10 +686,11 @@ const resolvers = {
   },
   Mutation: {
     signup: async (
-      _p: any,
+      _parent: any,
       args: any,
-      ctx: { res: Response; prisma: typeof prisma },
+      context: { res: Response; prisma: typeof prisma },
     ) => {
+      /* Copied from your provided code */
       const { username, email, password } = args;
       if (!username || !email || !password)
         throw new UserInputError("Username, email, and password are required.");
@@ -684,18 +698,18 @@ const resolvers = {
         throw new UserInputError("Password must be at least 6 characters.");
       if (!/^\S+@\S+\.\S+$/.test(email))
         throw new UserInputError("Invalid email format.");
-      const existingUserByEmail = await ctx.prisma.user.findUnique({
+      const existingUserByEmail = await context.prisma.user.findUnique({
         where: { email },
       });
       if (existingUserByEmail)
         throw new UserInputError("Email already in use.");
-      const existingUserByUsername = await ctx.prisma.user.findUnique({
+      const existingUserByUsername = await context.prisma.user.findUnique({
         where: { username },
       });
       if (existingUserByUsername)
         throw new UserInputError("Username already taken.");
       const passwordHash = await bcrypt.hash(password, HASH_SALT_ROUNDS);
-      const user = await ctx.prisma.user.create({
+      const user = await context.prisma.user.create({
         data: { username, email, passwordHash },
       });
       const token = jwt.sign(
@@ -703,7 +717,7 @@ const resolvers = {
         JWT_SECRET,
         { expiresIn: "7d" },
       );
-      ctx.res.cookie(TOKEN_COOKIE_NAME, token, {
+      context.res.cookie(TOKEN_COOKIE_NAME, token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -713,14 +727,15 @@ const resolvers = {
       return { token, user: userData };
     },
     login: async (
-      _p: any,
+      _parent: any,
       args: any,
-      ctx: { res: Response; prisma: typeof prisma },
+      context: { res: Response; prisma: typeof prisma },
     ) => {
+      /* Copied from your provided code */
       const { emailOrUsername, password } = args;
       if (!emailOrUsername || !password)
         throw new UserInputError("Email/Username and password are required.");
-      const user = await ctx.prisma.user.findFirst({
+      const user = await context.prisma.user.findFirst({
         where: {
           OR: [{ email: emailOrUsername }, { username: emailOrUsername }],
         },
@@ -734,7 +749,7 @@ const resolvers = {
         JWT_SECRET,
         { expiresIn: "7d" },
       );
-      ctx.res.cookie(TOKEN_COOKIE_NAME, token, {
+      context.res.cookie(TOKEN_COOKIE_NAME, token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -743,8 +758,9 @@ const resolvers = {
       const { passwordHash: _, ...userData } = user;
       return { token, user: userData };
     },
-    logout: async (_p: any, _a: any, ctx: { res: Response }) => {
-      ctx.res.clearCookie(TOKEN_COOKIE_NAME, {
+    logout: async (_parent: any, _args: any, context: { res: Response }) => {
+      /* Copied from your provided code */
+      context.res.clearCookie(TOKEN_COOKIE_NAME, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -752,10 +768,11 @@ const resolvers = {
       return true;
     },
     judgeSubmission: async (
-      _s: unknown,
+      _source: unknown,
       args: { input: TsJudgeInput },
-      ctx: { prisma: typeof prisma; userId?: string },
+      context: { prisma: typeof prisma; userId?: string },
     ): Promise<{ passed: boolean; details: any[] }> => {
+      /* Copied from your provided code */
       const { code, lang, tests, leetCodeProblemData } = args.input;
       if (!tests || tests.length === 0) {
         throw new UserInputError("No test cases provided.");
@@ -790,7 +807,7 @@ const resolvers = {
       return { passed, details };
     },
     createTournament: async (
-      _p: any,
+      _parent: any,
       args: {
         name: string;
         maxParticipants?: number;
@@ -798,12 +815,20 @@ const resolvers = {
         problemSetType?: string;
         curatedProblemIds?: string[];
       },
-      ctx: { userId?: string; prisma: typeof prisma },
+      context: { userId?: string; username?: string; prisma: typeof prisma },
     ) => {
-      if (!ctx.userId)
+      /* Copied from your provided code with slight modifications from previous response */
+      console.log(
+        "Create Tournament Resolver - Context UserID:",
+        context.userId,
+        "Context Username:",
+        context.username,
+      );
+      if (!context.userId) {
         throw new AuthenticationError(
           "You must be logged in to create a tournament.",
         );
+      }
       const {
         name,
         maxParticipants,
@@ -814,37 +839,39 @@ const resolvers = {
       if (!name || name.trim() === "")
         throw new UserInputError("Tournament name cannot be empty.");
 
-      const tournament = await ctx.prisma.tournament.create({
+      const tournament = await context.prisma.tournament.create({
         data: {
           name,
-          organizerId: ctx.userId,
+          organizerId: context.userId,
           maxParticipants,
           hasVideo: hasVideo || false,
           problemSetType: problemSetType || "RANDOM_LEETCODE",
           curatedProblemIds:
             problemSetType === "CURATED" && curatedProblemIds
               ? curatedProblemIds
-              : [], // Ensure curatedProblemIds is an array if provided
+              : [],
           status: TournamentStatus.PENDING,
+          pairingSystem: PairingSystem.RANDOM, // Ensure PairingSystem is imported or string
         },
-        include: { organizer: true },
+        include: { organizer: { select: { id: true, username: true } } },
       });
       activeHalls.set(tournament.id, {
         tournamentId: tournament.id,
-        organizerId: ctx.userId,
+        organizerId: context.userId,
         participants: new Map(),
       });
       console.log(
-        `Tournament Hall initialized for tournament: ${tournament.id} by organizer ${ctx.userId}`,
+        `Tournament Hall initialized for tournament: ${tournament.id} by organizer ${context.userId} (${context.username || "N/A"})`,
       );
       return tournament;
     },
   },
 };
 
+// --- Server Setup ---
 async function startServer() {
   const app = express();
-  app.use(cookieParser());
+  app.use(cookieParser()); // This must be before Apollo middleware
 
   const httpServer = http.createServer(app);
 
@@ -852,7 +879,9 @@ async function startServer() {
     typeDefs,
     resolvers,
     context: ({ req, res }: { req: Request; res: Response }) => {
+      // console.log("GraphQL Context: Raw req.cookies:", req.cookies); // For debugging cookies
       const token = req.cookies[TOKEN_COOKIE_NAME];
+      // console.log(`GraphQL Context: Token from cookie ('${TOKEN_COOKIE_NAME}'):`, token ? "Present" : "Missing");
       let userId;
       let username;
       if (token && JWT_SECRET) {
@@ -860,13 +889,19 @@ async function startServer() {
           const decoded = jwt.verify(token, JWT_SECRET) as {
             userId: string;
             username: string;
-            rating?: number;
+            iat?: number;
+            exp?: number;
           };
           userId = decoded.userId;
           username = decoded.username;
+          // console.log(`GraphQL Context: JWT Decoded - UserID: ${userId}, Username: ${username}`);
         } catch (err: any) {
-          console.warn("Invalid or expired JWT:", err.message);
-          res.clearCookie(TOKEN_COOKIE_NAME);
+          console.warn("GraphQL Context: JWT Verification Error:", err.message);
+          res.clearCookie(TOKEN_COOKIE_NAME, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+          });
         }
       }
       return { req, res, prisma, userId, username };
@@ -892,7 +927,7 @@ async function startServer() {
   });
 
   io.use(async (socket, next) => {
-    /* ... Socket Auth Middleware (same as before) ... */
+    /* Your existing socket auth middleware */
     const cookiesHeader = socket.handshake.headers.cookie;
     if (cookiesHeader) {
       const parsedCookies: Record<string, string> = {};
@@ -913,7 +948,7 @@ async function startServer() {
           };
           const user = await prisma.user.findUnique({
             where: { id: decoded.userId },
-          });
+          }); // Corrected to prisma.user
           if (user) {
             socket.data.authUser = {
               userId: user.id,
@@ -928,29 +963,28 @@ async function startServer() {
               `Socket ${socket.id}: JWT user ID ${decoded.userId} not found in DB.`,
             );
           }
-        } catch (err) {
+        } catch (err: any) {
           console.warn(
-            `Socket ${socket.id} cookie authentication failed: Invalid token.`,
+            `Socket ${socket.id} cookie authentication failed: ${err.message}.`,
           );
         }
       } else {
-        console.log(
-          `Socket ${socket.id} connected, no ${TOKEN_COOKIE_NAME} cookie found.`,
-        );
+        /* console.log(`Socket ${socket.id} connected, no ${TOKEN_COOKIE_NAME} cookie found or JWT_SECRET missing.`); */
       }
     } else {
-      console.log(`Socket ${socket.id} connected without cookies header.`);
+      /* console.log(`Socket ${socket.id} connected without cookies header.`); */
     }
     next();
   });
 
   io.on("connection", (socket: Socket) => {
+    /* Your existing full io.on("connection") block */
     console.log(
       `Socket connected: ${socket.id}${socket.data.authUser ? " (Auth: " + socket.data.authUser.username + ")" : " (Unauthenticated)"}`,
     );
 
     let currentDuelId: string | null = null;
-    let currentUserIdForDuel: string | null = null;
+    // let currentUserIdForDuel: string | null = null; // Marked as unused, can be removed if not needed later
     let currentTournamentHallId: string | null = null;
 
     socket.on(
@@ -962,7 +996,6 @@ async function startServer() {
         initialCode?: string;
         initialLanguage?: string;
       }) => {
-        /* ... Same as your provided code, ensure `effectiveUserId` and `effectiveUsername` are used ... */
         let {
           duelId,
           userId: clientUserId,
@@ -977,8 +1010,12 @@ async function startServer() {
           effectiveUserId = socket.data.authUser.userId;
           effectiveUsername = socket.data.authUser.username;
         } else if (clientUserId && clientUsername) {
+          // Fallback for unauthed socket join (e.g. spectator not logged in)
           effectiveUserId = clientUserId;
           effectiveUsername = clientUsername;
+          console.warn(
+            `Duel join by unauthenticated socket ${socket.id} for user ${clientUsername}. This should ideally be an authenticated user.`,
+          );
         } else {
           socket.emit("duelError", {
             message: "Cannot join duel without user identification.",
@@ -988,12 +1025,15 @@ async function startServer() {
 
         if (currentDuelId && currentDuelId !== duelId) {
           socket.leave(currentDuelId);
+          console.log(
+            `Socket ${socket.id} left previous duel room ${currentDuelId}`,
+          );
         }
         currentDuelId = duelId;
-        currentUserIdForDuel = effectiveUserId;
+        // currentUserIdForDuel = effectiveUserId; // This was identified as unused previously.
         socket.join(duelId);
         console.log(
-          `User ${effectiveUsername} (ID: ${effectiveUserId}, Socket: ${socket.id}) joining duel ${duelId}`,
+          `User ${effectiveUsername} (ID: ${effectiveUserId}, Socket: ${socket.id}) attempting to join duel ${duelId}`,
         );
 
         let room = activeDuels.get(duelId);
@@ -1005,11 +1045,13 @@ async function startServer() {
             status: "waiting",
           };
           activeDuels.set(duelId, room);
+          console.log(`Created new duel room: ${duelId}`);
         }
 
         let assignedRole: UserRole | null = null;
         let competitorJustAddedToMakeTwo = false;
         let existingRole: CompetitorRole | null = null;
+
         if (room.competitors.competitor1?.userId === effectiveUserId)
           existingRole = "competitor1";
         else if (room.competitors.competitor2?.userId === effectiveUserId)
@@ -1019,7 +1061,10 @@ async function startServer() {
           assignedRole = existingRole;
           if (room.competitors[assignedRole]) {
             room.competitors[assignedRole]!.socketId = socket.id;
-            room.competitors[assignedRole]!.username = effectiveUsername;
+            room.competitors[assignedRole]!.username = effectiveUsername; // Update username on rejoin
+            console.log(
+              `User ${effectiveUsername} rejoining duel ${duelId} as ${assignedRole}`,
+            );
           }
         } else if (!room.competitors.competitor1) {
           assignedRole = "competitor1";
@@ -1031,6 +1076,7 @@ async function startServer() {
             language: initialLanguage,
             solvedProblem: false,
           };
+          // competitorJustAddedToMakeTwo = Object.keys(room.competitors).length === 2; // Check after assignment
         } else if (!room.competitors.competitor2) {
           assignedRole = "competitor2";
           room.competitors.competitor2 = {
@@ -1041,10 +1087,18 @@ async function startServer() {
             language: initialLanguage,
             solvedProblem: false,
           };
-          competitorJustAddedToMakeTwo = true;
+          competitorJustAddedToMakeTwo = true; // Now two competitors are definitely in
         } else {
           assignedRole = "spectator";
           room.spectators.add(socket.id);
+        }
+
+        if (
+          assignedRole !== "spectator" &&
+          room.competitors.competitor1 &&
+          room.competitors.competitor2
+        ) {
+          competitorJustAddedToMakeTwo = true; // Re-evaluate if both slots filled now
         }
 
         socket.emit("assignedRole", {
@@ -1053,48 +1107,91 @@ async function startServer() {
           userId: effectiveUserId,
           username: effectiveUsername,
         });
-        const competitorStatesForEmit = Object.values(room.competitors)
-          .map((comp) =>
-            comp
-              ? {
-                  userId: comp.userId,
-                  username: comp.username,
-                  role: Object.keys(room!.competitors).find(
-                    (key) =>
-                      room!.competitors[key as CompetitorRole]?.userId ===
-                      comp.userId,
-                  ) as CompetitorRole,
-                  code: comp.code,
-                  language: comp.language,
-                  solvedProblem: comp.solvedProblem,
-                }
-              : null,
-          )
-          .filter((c) => c && c.role);
+
+        const competitorStatesForEmit: Array<{
+          userId: string;
+          username: string;
+          role: CompetitorRole;
+          code: string;
+          language: string;
+          solvedProblem?: boolean;
+          submissionTime?: number;
+        }> = [];
+
+        if (room.competitors.competitor1) {
+          competitorStatesForEmit.push({
+            userId: room.competitors.competitor1.userId,
+            username: room.competitors.competitor1.username,
+            role: "competitor1",
+            code: room.competitors.competitor1.code,
+            language: room.competitors.competitor1.language,
+            solvedProblem: room.competitors.competitor1.solvedProblem,
+            submissionTime: room.competitors.competitor1.submissionTime,
+            // socketId is internal to backend, not needed by frontend for this specific state object
+          });
+        }
+        if (room.competitors.competitor2) {
+          competitorStatesForEmit.push({
+            userId: room.competitors.competitor2.userId,
+            username: room.competitors.competitor2.username,
+            role: "competitor2",
+            code: room.competitors.competitor2.code,
+            language: room.competitors.competitor2.language,
+            solvedProblem: room.competitors.competitor2.solvedProblem,
+            submissionTime: room.competitors.competitor2.submissionTime,
+          });
+        }
+
         socket.emit("duelState", {
-          competitors: competitorStatesForEmit,
+          competitors: competitorStatesForEmit, // This now matches frontend's CompetitorState[]
           problem: room.problem,
           status: room.status,
         });
-        if (assignedRole !== "spectator")
-          socket.to(duelId).emit("userJoined", {
+
+        // Notify others
+        if (assignedRole !== "spectator") {
+          // If a competitor joined/rejoined
+          const joinedCompetitorData =
+            room.competitors[assignedRole as CompetitorRole];
+          if (joinedCompetitorData) {
+            socket.to(duelId).emit("userJoined", {
+              userId: joinedCompetitorData.userId,
+              username: joinedCompetitorData.username,
+              role: assignedRole,
+            });
+          }
+        } else {
+          // If a spectator joins
+          // Spectator doesn't have a 'role' in the competitors list, but the 'userJoined' event sends their role as 'spectator'
+          // We can send the effectiveUserId and effectiveUsername for the spectator
+          io.to(duelId).emit("userJoined", {
             userId: effectiveUserId,
             username: effectiveUsername,
             role: assignedRole,
           });
+        }
+        console.log(
+          `User ${effectiveUsername} (ID: ${effectiveUserId}) assigned role ${assignedRole} in duel ${duelId}`,
+        );
 
         if (
           room.competitors.competitor1 &&
           room.competitors.competitor2 &&
           room.status === "waiting" &&
-          (!room.problem || competitorJustAddedToMakeTwo)
+          (competitorJustAddedToMakeTwo || !room.problem)
         ) {
+          console.log(
+            `Duel ${duelId}: Two competitors ready (${room.competitors.competitor1.username} & ${room.competitors.competitor2.username}). Current problem: ${room.problem ? room.problem.title : "None"}. Status: ${room.status}. JustAdded: ${competitorJustAddedToMakeTwo}`,
+          );
           room.status = "active";
           room.startTime = Date.now();
           io.to(duelId).emit("duelStatusUpdate", {
             status: room.status,
             startTime: room.startTime,
           });
+          console.log(
+            `Duel ${duelId} status set to active. Assigning problem...`,
+          );
           try {
             let problemToAssign: TsProblem | null = null;
             if (room.tournamentId) {
@@ -1105,11 +1202,23 @@ async function startServer() {
                 tourneyDb?.problemSetType === "CURATED" &&
                 tourneyDb.curatedProblemIds.length > 0
               ) {
-                const probId = tourneyDb.curatedProblemIds[0]; // Simplistic
+                const probId = tourneyDb.curatedProblemIds[0]; // Simplistic: pick first, or implement round logic
+                console.log(
+                  `Duel ${duelId}: Tournament duel, attempting to fetch curated problem: ${probId}`,
+                );
                 problemToAssign = await fetchLeetProblemDetails(probId).catch(
-                  () => null,
+                  (err) => {
+                    console.error(
+                      "Error fetching curated LeetCode problem:",
+                      err,
+                    );
+                    return null;
+                  },
                 );
               } else if (tourneyDb?.problemSetType === "RANDOM_CODEFORCES") {
+                console.log(
+                  `Duel ${duelId}: Tournament duel, fetching random Codeforces problem.`,
+                );
                 const cfProbs = await fetchCFProblems();
                 if (cfProbs.length > 0)
                   problemToAssign =
@@ -1117,6 +1226,10 @@ async function startServer() {
               }
             }
             if (!problemToAssign) {
+              // Default to random LeetCode if no tournament specific or CF fetch fails
+              console.log(
+                `Duel ${duelId}: No tournament problem set or failed fetch, fetching random LeetCode problem.`,
+              );
               const stubs = await fetchLeetProblemStubs();
               if (stubs.length > 0) {
                 const randomStub =
@@ -1126,22 +1239,29 @@ async function startServer() {
                 );
               }
             }
+
             if (problemToAssign) {
               room.problem = problemToAssign;
+              console.log(
+                `Duel ${duelId}: Assigned problem "${problemToAssign.title}"`,
+              );
               io.to(duelId).emit("duelProblemAssigned", {
                 problem: problemToAssign,
               });
             } else {
+              console.error(`Duel ${duelId}: Failed to assign any problem.`);
               io.to(duelId).emit("duelError", {
-                message: "Failed to assign problem.",
+                message: "Failed to assign a problem. No problems available.",
               });
             }
           } catch (error: any) {
+            console.error(`Duel ${duelId}: Error assigning problem:`, error);
             io.to(duelId).emit("duelError", {
-              message: "Error assigning problem.",
+              message: "An error occurred while assigning problem.",
             });
           }
         } else if (room.problem) {
+          // If problem already exists (e.g. user rejoining an active/finished duel)
           socket.emit("duelProblemAssigned", { problem: room.problem });
           socket.emit("duelStatusUpdate", {
             status: room.status,
@@ -1159,7 +1279,7 @@ async function startServer() {
         role: CompetitorRole;
         submissionTime: number;
       }) => {
-        /* ... Same as your provided code ... */
+        /* Copied */
         const room = activeDuels.get(data.duelId);
         if (
           !room ||
@@ -1181,6 +1301,7 @@ async function startServer() {
           submissionTime: data.submissionTime,
         });
         if (!room.winner) {
+          // First solver wins
           room.winner = data.userId;
           room.status = "finished";
           console.log(
@@ -1206,8 +1327,7 @@ async function startServer() {
                     ? 1.0
                     : room.winner === c2.userId
                       ? 0.0
-                      : 0.5;
-                const score2 = 1.0 - score1;
+                      : 0.5; // 0.5 for draw if implemented
                 const { newRatingA: newRating1, newRatingB: newRating2 } =
                   calculateElo(user1.rating, user2.rating, score1);
                 await prisma.user.update({
@@ -1226,7 +1346,7 @@ async function startServer() {
                     playerOneId: c1.userId,
                     playerTwoId: c2.userId,
                     playerOneScore: score1,
-                    playerTwoScore: score2,
+                    playerTwoScore: 1.0 - score1,
                     playerOneOldRating: user1.rating,
                     playerOneNewRating: newRating1,
                     playerTwoOldRating: user2.rating,
@@ -1265,7 +1385,7 @@ async function startServer() {
         code: string;
         role: CompetitorRole;
       }) => {
-        /* ... Same as your provided code ... */
+        /* Copied */
         const room = activeDuels.get(data.duelId);
         if (
           room &&
@@ -1293,7 +1413,7 @@ async function startServer() {
         language: string;
         role: CompetitorRole;
       }) => {
-        /* ... Same as your provided code ... */
+        /* Copied */
         const room = activeDuels.get(data.duelId);
         if (
           room &&
@@ -1313,139 +1433,144 @@ async function startServer() {
         }
       },
     );
-    socket.on("joinHall", async (data: { tournamentId: string }, callback) => {
-      /* ... Same as before ... */
-      const { tournamentId } = data;
-      const authUser = socket.data.authUser;
-      if (!authUser) {
-        if (callback)
-          callback({
-            success: false,
-            error: "Authentication required to join hall.",
-          });
-        return;
-      }
-      const hall = activeHalls.get(tournamentId);
-      const tournamentDb = await prisma.tournament.findUnique({
-        where: { id: tournamentId },
-        include: { organizer: true },
-      });
-      if (!hall || !tournamentDb) {
-        if (callback)
-          callback({ success: false, error: "Tournament hall not found." });
-        return;
-      }
-      if (
-        tournamentDb.status === TournamentStatus.COMPLETED ||
-        tournamentDb.status === TournamentStatus.CANCELLED
-      ) {
-        if (callback)
-          callback({ success: false, error: "This tournament is not active." });
-        return;
-      }
-      currentTournamentHallId = tournamentId;
-      let participantDbRecord = await prisma.tournamentParticipant.findUnique({
-        where: {
-          tournamentId_userId: { tournamentId, userId: authUser.userId },
-        },
-      });
-      if (
-        !participantDbRecord &&
-        tournamentDb.status === TournamentStatus.PENDING
-      ) {
-        if (tournamentDb.maxParticipants) {
-          const count = await prisma.tournamentParticipant.count({
-            where: { tournamentId, isActive: true },
-          });
-          if (count >= tournamentDb.maxParticipants) {
-            if (callback)
-              callback({ success: false, error: "Tournament is full." });
-            return;
-          }
+    socket.on(
+      "joinHall",
+      async (
+        data: { tournamentId: string },
+        callback: (response: {
+          success: boolean;
+          error?: string;
+          tournamentDetails?: any;
+        }) => void,
+      ) => {
+        /* Copied, with prisma.tournamentParticipant.aggregate for count */
+        const { tournamentId } = data;
+        const authUser = socket.data.authUser;
+        if (!authUser) {
+          if (callback)
+            callback({ success: false, error: "Authentication required." });
+          return;
         }
-        try {
-          participantDbRecord = await prisma.tournamentParticipant.create({
-            data: { tournamentId, userId: authUser.userId },
-          });
-        } catch (e: any) {
-          if (e.code === "P2002") {
-            participantDbRecord = await prisma.tournamentParticipant.findUnique(
-              {
-                where: {
-                  tournamentId_userId: {
-                    tournamentId,
-                    userId: authUser.userId,
-                  },
-                },
-              },
-            );
-            if (!participantDbRecord) {
-              if (callback)
-                callback({
-                  success: false,
-                  error: "Failed to join (conflict).",
-                });
-              return;
-            }
-          } else {
-            console.error("Error creating TP record:", e);
-            if (callback) callback({ success: false, error: "Error joining." });
-            return;
-          }
+        const hall = activeHalls.get(tournamentId);
+        const tournamentDb = await prisma.tournament.findUnique({
+          where: { id: tournamentId },
+          include: { organizer: { select: { id: true, username: true } } },
+        });
+        if (!hall || !tournamentDb) {
+          if (callback)
+            callback({ success: false, error: "Tournament hall not found." });
+          return;
         }
-      } else if (
-        !participantDbRecord &&
-        tournamentDb.status !== TournamentStatus.PENDING
-      ) {
-        if (callback)
-          callback({
-            success: false,
-            error: "Tournament already started/finished.",
-          });
-        return;
-      }
-      if (!participantDbRecord?.isActive) {
-        if (callback)
-          callback({ success: false, error: "Not an active participant." });
-        return;
-      }
-      socket.join(tournamentId);
-      const hallParticipant: HallParticipant = {
-        socketId: socket.id,
-        userId: authUser.userId,
-        username: authUser.username,
-        rating: authUser.rating,
-      };
-      hall.participants.set(authUser.userId, hallParticipant);
-      socket.emit("hallState", {
-        tournamentId,
-        organizerId: hall.organizerId,
-        participants: Array.from(hall.participants.values()),
-        tournamentDetails: {
-          ...tournamentDb,
-          organizer: {
-            id: tournamentDb.organizer.id,
-            username: tournamentDb.organizer.username,
-          },
-        },
-      });
-      io.to(tournamentId).emit("userJoinedHall", hallParticipant);
-      if (callback)
-        callback({
-          success: true,
-          tournamentDetails: {
-            ...tournamentDb,
-            organizer: {
-              id: tournamentDb.organizer.id,
-              username: tournamentDb.organizer.username,
+        if (
+          tournamentDb.status === TournamentStatus.COMPLETED ||
+          tournamentDb.status === TournamentStatus.CANCELLED
+        ) {
+          if (callback)
+            callback({ success: false, error: "Tournament not active." });
+          return;
+        }
+
+        currentTournamentHallId = tournamentId; // Associate socket with this hall
+
+        let participantDbRecord = await prisma.tournamentParticipant.findUnique(
+          {
+            where: {
+              tournamentId_userId: { tournamentId, userId: authUser.userId },
             },
           },
+        );
+        if (
+          !participantDbRecord &&
+          tournamentDb.status === TournamentStatus.PENDING
+        ) {
+          if (tournamentDb.maxParticipants) {
+            const countResult = await prisma.tournamentParticipant.aggregate({
+              _count: { id: true },
+              where: { tournamentId, isActive: true },
+            });
+            const count = countResult._count.id;
+            if (count >= tournamentDb.maxParticipants) {
+              if (callback)
+                callback({ success: false, error: "Tournament is full." });
+              return;
+            }
+          }
+          try {
+            participantDbRecord = await prisma.tournamentParticipant.create({
+              data: { tournamentId, userId: authUser.userId },
+            });
+          } catch (e: any) {
+            if (e.code === "P2002") {
+              participantDbRecord =
+                await prisma.tournamentParticipant.findUnique({
+                  where: {
+                    tournamentId_userId: {
+                      tournamentId,
+                      userId: authUser.userId,
+                    },
+                  },
+                });
+              if (!participantDbRecord) {
+                if (callback)
+                  callback({
+                    success: false,
+                    error: "Failed to join (conflict).",
+                  });
+                return;
+              }
+            } else {
+              console.error("Error creating TP record:", e);
+              if (callback)
+                callback({ success: false, error: "Error joining." });
+              return;
+            }
+          }
+        } else if (
+          !participantDbRecord &&
+          tournamentDb.status !== TournamentStatus.PENDING
+        ) {
+          if (callback)
+            callback({
+              success: false,
+              error: "Tournament already started/finished.",
+            });
+          return;
+        }
+
+        if (!participantDbRecord?.isActive) {
+          if (callback)
+            callback({ success: false, error: "Not an active participant." });
+          return;
+        }
+
+        socket.join(tournamentId);
+        const hallParticipant: HallParticipant = {
+          socketId: socket.id,
+          userId: authUser.userId,
+          username: authUser.username,
+          rating: authUser.rating,
+        };
+        hall.participants.set(authUser.userId, hallParticipant);
+
+        const safeTournamentDetails = {
+          ...tournamentDb,
+          organizer: tournamentDb.organizer,
+        }; // Organizer already selected safely
+        socket.emit("hallState", {
+          tournamentId,
+          organizerId: hall.organizerId,
+          participants: Array.from(hall.participants.values()),
+          tournamentDetails: safeTournamentDetails,
         });
-    });
+        io.to(tournamentId).emit("userJoinedHall", hallParticipant);
+        if (callback)
+          callback({ success: true, tournamentDetails: safeTournamentDetails });
+      },
+    );
     socket.on(
       "kickFromHall",
       async (data: { tournamentId: string; targetUserId: string }) => {
-        /* ... Same as before ... */
+        /* Copied */
         const { tournamentId, targetUserId } = data;
         const hall = activeHalls.get(tournamentId);
         const tournamentDb = await prisma.tournament.findUnique({
@@ -1496,7 +1621,7 @@ async function startServer() {
     socket.on(
       "startTournamentRound",
       async (data: { tournamentId: string }) => {
-        /* ... Same as before ... */
+        /* Copied */
         const { tournamentId } = data;
         const hall = activeHalls.get(tournamentId);
         const tournamentDb = await prisma.tournament.findUnique({
@@ -1515,7 +1640,10 @@ async function startServer() {
           tournamentDb.status !== TournamentStatus.PENDING &&
           tournamentDb.status !== TournamentStatus.ACTIVE
         ) {
-          socket.emit("hallError", { message: "Tournament not ready." });
+          socket.emit("hallError", {
+            message:
+              "Tournament not in PENDING or ACTIVE state to start a new round.",
+          });
           return;
         }
         if (
@@ -1523,10 +1651,11 @@ async function startServer() {
           tournamentDb.pairingSystem === PairingSystem.RANDOM
         ) {
           socket.emit("hallError", {
-            message: "Need at least 2 participants for random pairing.",
+            message: "Need at least 2 participants.",
           });
           return;
         }
+
         await prisma.tournament.update({
           where: { id: tournamentId },
           data: { status: TournamentStatus.ACTIVE },
@@ -1534,6 +1663,7 @@ async function startServer() {
         io.to(tournamentId).emit("tournamentStatusUpdate", {
           status: TournamentStatus.ACTIVE,
         });
+
         let availableParticipants = Array.from(hall.participants.values()).sort(
           () => 0.5 - Math.random(),
         );
@@ -1544,14 +1674,20 @@ async function startServer() {
             p2: availableParticipants.pop()!,
           });
         }
+
         if (availableParticipants.length === 1) {
-          io.to(tournamentId).emit("tournamentMessage", {
-            userId: availableParticipants[0].userId,
-            message: "You have a bye this round.",
-          });
+          const userWithBye = availableParticipants[0];
+          const byeSocket = io.sockets.sockets.get(userWithBye.socketId);
+          if (byeSocket) {
+            byeSocket.emit("tournamentMessage", {
+              message: "You have a bye this round.",
+            });
+          }
         }
+
         for (const pair of duelsToCreate) {
           const duelId = `tourney-${tournamentId.substring(0, 5)}-${pair.p1.userId.substring(0, 3)}v${pair.p2.userId.substring(0, 3)}-${Date.now() % 10000}`;
+          // Set tournamentId when creating the duel room for tournament context
           activeDuels.set(duelId, {
             duelId,
             tournamentId,
@@ -1562,47 +1698,64 @@ async function startServer() {
           console.log(
             `Tournament duel ${duelId} prepared for ${pair.p1.username} vs ${pair.p2.username}`,
           );
-          io.to(pair.p1.socketId).emit("duelInvitation", {
-            duelId,
-            opponentUsername: pair.p2.username,
-            problemSetType: tournamentDb.problemSetType,
-            curatedProblemIds: tournamentDb.curatedProblemIds,
-          });
-          io.to(pair.p2.socketId).emit("duelInvitation", {
-            duelId,
-            opponentUsername: pair.p1.username,
-            problemSetType: tournamentDb.problemSetType,
-            curatedProblemIds: tournamentDb.curatedProblemIds,
-          });
+          const p1Socket = io.sockets.sockets.get(pair.p1.socketId);
+          if (p1Socket)
+            p1Socket.emit("duelInvitation", {
+              duelId,
+              opponentUsername: pair.p2.username,
+              problemSetType: tournamentDb.problemSetType,
+              curatedProblemIds: tournamentDb.curatedProblemIds,
+            });
+          const p2Socket = io.sockets.sockets.get(pair.p2.socketId);
+          if (p2Socket)
+            p2Socket.emit("duelInvitation", {
+              duelId,
+              opponentUsername: pair.p1.username,
+              problemSetType: tournamentDb.problemSetType,
+              curatedProblemIds: tournamentDb.curatedProblemIds,
+            });
           io.to(tournamentId).emit("newTournamentDuel", {
             duelId,
             p1: { userId: pair.p1.userId, username: pair.p1.username },
             p2: { userId: pair.p2.userId, username: pair.p2.username },
           });
         }
+        socket.emit("hallActionSuccess", {
+          message: `Round started with ${duelsToCreate.length} duels.`,
+        });
       },
     );
     socket.on("disconnect", () => {
-      /* ... Same as your provided code with currentDuelId/currentUserIdForDuel and currentTournamentHallId logic ... */
+      /* Your existing disconnect logic with currentDuelId & currentTournamentHallId */
       console.log(
         `Socket ${socket.id} disconnected.${socket.data.authUser ? " Auth user: " + socket.data.authUser.username : ""}`,
       );
       const authUser = socket.data.authUser;
+
+      // Handle Tournament Hall Disconnect
       if (currentTournamentHallId && authUser) {
+        // If socket was associated with a hall and was authenticated
         const hall = activeHalls.get(currentTournamentHallId);
         if (hall && hall.participants.has(authUser.userId)) {
           const participant = hall.participants.get(authUser.userId);
+          // Ensure it's the same socket instance that's disconnecting for this user in this hall
           if (participant?.socketId === socket.id) {
             hall.participants.delete(authUser.userId);
             io.to(currentTournamentHallId).emit("userLeftHall", {
               userId: authUser.userId,
               username: authUser.username,
             });
+            console.log(
+              `User ${authUser.username} removed from hall ${currentTournamentHallId} due to disconnect.`,
+            );
           }
         }
       }
-      currentTournamentHallId = null;
-      if (currentDuelId && currentUserIdForDuel) {
+      // currentTournamentHallId = null; // Resetting here could be problematic if user has multiple tabs/connections
+
+      // Handle Duel Room Disconnect
+      if (currentDuelId) {
+        // If socket was associated with a duel
         const room = activeDuels.get(currentDuelId);
         if (room) {
           let userWhoLeft: {
@@ -1610,15 +1763,14 @@ async function startServer() {
             username: string;
             role: UserRole;
           } | null = null;
+
           for (const role of [
             "competitor1",
             "competitor2",
           ] as CompetitorRole[]) {
             const competitor = room.competitors[role];
-            if (
-              competitor?.socketId === socket.id &&
-              competitor.userId === currentUserIdForDuel
-            ) {
+            if (competitor?.socketId === socket.id) {
+              // Match by socket.id
               userWhoLeft = {
                 userId: competitor.userId,
                 username: competitor.username,
@@ -1626,6 +1778,7 @@ async function startServer() {
               };
               delete room.competitors[role];
               if (room.status === "active") {
+                // If duel was active, other player wins by forfeit
                 room.status = "finished";
                 room.winner =
                   (role === "competitor1"
@@ -1636,51 +1789,83 @@ async function startServer() {
                   status: room.status,
                   forfeitedBy: userWhoLeft.userId,
                 });
+                console.log(
+                  `Duel ${currentDuelId} ended due to forfeit by ${userWhoLeft.username}`,
+                );
               }
               break;
             }
           }
+
           if (room.spectators.has(socket.id)) {
             let spectatorUserId = `spectator-${socket.id}`;
             let spectatorUsername = "Spectator";
-            if (
-              authUser &&
-              currentTournamentHallId &&
-              activeHalls
-                .get(currentTournamentHallId)
-                ?.participants.get(authUser.userId)?.socketId === socket.id
-            ) {
+            if (authUser) {
+              // If spectator was authenticated, use their details
               spectatorUserId = authUser.userId;
               spectatorUsername = authUser.username;
-            } // If spectator was an authenticated hall participant
-            if (!userWhoLeft)
+            }
+            if (!userWhoLeft) {
+              // Only set if not already identified as a leaving competitor
               userWhoLeft = {
                 userId: spectatorUserId,
                 username: spectatorUsername,
                 role: "spectator",
               };
+            }
             room.spectators.delete(socket.id);
           }
+
           if (userWhoLeft) {
             io.to(currentDuelId).emit("userLeft", userWhoLeft);
+            console.log(
+              `User ${userWhoLeft.username} (Role: ${userWhoLeft.role}) left duel ${currentDuelId}`,
+            );
           }
+
           if (
             Object.keys(room.competitors).length === 0 &&
             room.spectators.size === 0
           ) {
             activeDuels.delete(currentDuelId);
-            console.log(`Duel room ${currentDuelId} removed.`);
+            console.log(`Duel room ${currentDuelId} is now empty and removed.`);
           }
         }
       }
-      currentDuelId = null;
-      currentUserIdForDuel = null;
+      // Do not nullify currentDuelId and currentTournamentHallId here globally for the socket,
+      // as a user might be in a hall and then join a duel - those are distinct contexts for the socket.
+      // These variables are more for tracking the *last* room of each type this socket interacted with for specific events.
+      // The socket's actual room memberships are handled by socket.join/leave.
     });
+
+    // WebRTC Signaling (from previous version)
+    socket.on(
+      "webrtcSignal",
+      (payload: { to: string; data: any; duelId?: string }) => {
+        io.to(payload.to).emit("webrtcSignal", {
+          from: socket.id,
+          data: payload.data,
+          duelId: payload.duelId,
+        });
+      },
+    );
+    socket.on(
+      "requestStreams",
+      (data: { duelId: string; targetSocketIds: string[] }) => {
+        data.targetSocketIds.forEach((targetSocketId) => {
+          if (targetSocketId !== socket.id) {
+            io.to(targetSocketId).emit("streamRequestedBySpectator", {
+              spectatorSocketId: socket.id,
+              duelId: data.duelId,
+            });
+          }
+        });
+      },
+    );
   });
 
   const port = process.env.PORT || 4000;
   httpServer.listen(port, () => {
-    /* ... console logs ... */
     console.log(
       `🚀 GraphQL Server ready at http://localhost:${port}${apolloServer.graphqlPath}`,
     );

@@ -1,20 +1,31 @@
 // frontend/src/main.tsx
 import React from "react";
-import { ApolloClient, InMemoryCache, ApolloProvider } from "@apollo/client";
+import {
+  ApolloClient,
+  InMemoryCache,
+  ApolloProvider,
+  createHttpLink,
+} from "@apollo/client"; // Added createHttpLink
 import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
-// AuthProvider should NOT be imported or used here directly if App.tsx handles routing and AuthProvider.
+import { AuthProvider } from "./contexts/AuthContext"; // Assuming App.tsx wraps with this
 import "./index.css";
 
+// Create an HTTP link that includes credentials
+const httpLink = createHttpLink({
+  uri: "http://localhost:4000/graphql",
+  credentials: "include", // <<< THIS IS THE CRUCIAL PART
+});
+
 const client = new ApolloClient({
-  uri: "http://localhost:4000/graphql", // Your GraphQL endpoint
+  link: httpLink, // Use the configured link
   cache: new InMemoryCache(),
 });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ApolloProvider client={client}>
-      {/* App component itself will now include AuthProvider and RouterProvider */}
+      {/* Assuming App.tsx handles AuthProvider and RouterProvider correctly now */}
       <App />
     </ApolloProvider>
   </React.StrictMode>,

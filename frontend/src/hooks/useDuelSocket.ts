@@ -1,17 +1,7 @@
+// frontend/src/hooks/useDuelSocket.ts
 import { useEffect, useState, useRef, useCallback } from "react";
 import io, { Socket } from "socket.io-client";
-
-// Assuming Problem type is similar to what was in your original App.tsx
-// If not, define it or import it appropriately
-export interface Problem {
-  id: string;
-  title: string;
-  description: string;
-  tests: Array<{ stdin: string; expected: string }>;
-  platform: string;
-  codeSnippets?: Array<{ lang: string; langSlug: string; code: string }>;
-  metaData?: string;
-}
+import { User as AuthUser } from "../contexts/AuthContext"; // From AuthContext
 
 const SOCKET_SERVER_URL =
   process.env.NODE_ENV === "development"
@@ -23,19 +13,44 @@ export type UserRole = CompetitorRole | "spectator";
 
 export interface DuelUser {
   userId: string;
+  username: string;
   role: UserRole;
 }
 
 export interface CompetitorState {
   userId: string;
+  username: string;
   role: CompetitorRole;
   code: string;
   language: string;
+  solvedProblem?: boolean;
+  submissionTime?: number;
+}
+
+export interface Problem {
+  id: string;
+  title: string;
+  description: string;
+  tests: Array<{ stdin: string; expected: string }>;
+  platform: string;
+  codeSnippets?: Array<{ lang: string; langSlug: string; code: string }>;
+  metaData?: string;
 }
 
 export interface DuelRoomState {
   competitors: CompetitorState[];
-  problem?: Problem | null; // Add problem to duel state
+  problem?: Problem | null;
+  status?: "waiting" | "active" | "finished";
+  startTime?: number;
+  winner?: string | null;
+  forfeitedBy?: string | null; // Added for forfeit info
+}
+
+interface RatingsUpdatePayload {
+  [userId: string]: {
+    oldRating: number;
+    newRating: number;
+  };
 }
 
 interface UseDuelSocketReturn {
@@ -43,26 +58,33 @@ interface UseDuelSocketReturn {
   isConnected: boolean;
   joinDuelRoom: (
     duelId: string,
-    userId: string,
+    user: AuthUser | null,
     initialCode?: string,
     initialLanguage?: string,
-  ) => void;
+  ) => void; // User can be null for anonymous spectator
   sendCodeUpdate: (
     duelId: string,
-    userId: string,
+    user: AuthUser,
     code: string,
     role: CompetitorRole,
   ) => void;
   sendLanguageUpdate: (
     duelId: string,
-    userId: string,
+    user: AuthUser,
     language: string,
     role: CompetitorRole,
   ) => void;
+  sendProblemSolved: (
+    duelId: string,
+    user: AuthUser,
+    role: CompetitorRole,
+    submissionTime: number,
+  ) => void;
   assignedRoleAndUser: DuelUser | null;
-  duelRoomState: DuelRoomState | null; // Renamed for clarity, includes problem
+  duelRoomState: DuelRoomState | null;
   usersInRoom: DuelUser[];
-  duelError: string | null;
+  duelError: string | null; // Errors specific to duel socket
+  ratingsUpdate: RatingsUpdatePayload | null; // For ELO updates
 }
 
 export const useDuelSocket = (duelIdToJoin?: string): UseDuelSocketReturn => {
@@ -75,226 +97,282 @@ export const useDuelSocket = (duelIdToJoin?: string): UseDuelSocketReturn => {
     null,
   );
   const [duelError, setDuelError] = useState<string | null>(null);
+  const [ratingsUpdate, setRatingsUpdate] =
+    useState<RatingsUpdatePayload | null>(null);
 
   useEffect(() => {
-    if (!socketRef.current && duelIdToJoin) {
-      // Only connect if there's a duel ID to join initially
-      console.log(
-        `Attempting to connect to socket server for duel: ${duelIdToJoin}`,
-      );
+    if (duelIdToJoin && !socketRef.current) {
+      console.log(`DuelSocket: Initializing socket for duel: ${duelIdToJoin}`);
       const newSocket = io(SOCKET_SERVER_URL, {
-        // query: { duelId: duelIdToJoin } // Can pass initial duelId in query if server supports
+        withCredentials: true, // Crucial for sending cookies with socket handshake
       });
       socketRef.current = newSocket;
 
       newSocket.on("connect", () => {
-        console.log("Socket connected:", newSocket.id);
+        console.log("DuelSocket: Connected - ID:", newSocket.id);
         setIsConnected(true);
         setDuelError(null);
-        const sessionUserId =
-          localStorage.getItem("sessionUserId") ||
-          `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        localStorage.setItem("sessionUserId", sessionUserId);
-        if (duelIdToJoin) {
-          // Ensure duelIdToJoin is still relevant
-          joinDuelRoom(duelIdToJoin, sessionUserId);
-        }
+        // The CompetePage will call joinDuelRoom when it has authUser details
       });
 
       newSocket.on("disconnect", (reason) => {
-        console.log("Socket disconnected:", reason);
+        console.log("DuelSocket: Disconnected:", reason);
         setIsConnected(false);
-        // Optionally clear state or show a message
-        // setAssignedRoleAndUser(null);
-        // setUsersInRoom([]);
-        // setDuelRoomState(null);
-        if (reason === "io server disconnect") {
+        if (reason === "io server disconnect")
           setDuelError("Disconnected by server.");
-        } else {
-          setDuelError("Connection lost. Attempting to reconnect...");
-        }
+        else setDuelError("Connection lost.");
+        // Reset state on disconnect
+        setAssignedRoleAndUser(null);
+        setUsersInRoom([]);
+        setDuelRoomState(null); // Or keep last state for UI continuity on reconnect? For now, clear.
+        setRatingsUpdate(null);
       });
-
-      newSocket.on(
-        "assignedRole",
-        (data: { duelId: string; role: UserRole; userId: string }) => {
-          console.log("Role assigned:", data);
-          setAssignedRoleAndUser({ userId: data.userId, role: data.role });
-          setUsersInRoom((prev) => {
-            if (!prev.find((u) => u.userId === data.userId))
-              return [...prev, { userId: data.userId, role: data.role }];
+      newSocket.on("assignedRole", (data: DuelUser & { duelId: string }) => {
+        console.log("DuelSocket: Role assigned:", data);
+        setAssignedRoleAndUser(data);
+        setUsersInRoom((prev) => {
+          const existing = prev.find((u) => u.userId === data.userId);
+          if (existing)
             return prev.map((u) =>
-              u.userId === data.userId ? { ...u, role: data.role } : u,
+              u.userId === data.userId ? { ...data, role: data.role } : u,
             );
-          });
-        },
-      );
-
+          return [...prev, data];
+        });
+      });
       newSocket.on(
         "duelState",
-        (data: { competitors: CompetitorState[]; problem?: Problem }) => {
-          console.log("Received duel state:", data);
+        (data: DuelRoomState & { competitors: CompetitorState[] }) => {
+          console.log("DuelSocket: Received duel state:", data);
           setDuelRoomState(data);
-          const competitorUsers = data.competitors.map((c) => ({
+          const currentUsers = data.competitors.map((c) => ({
             userId: c.userId,
+            username: c.username,
             role: c.role as UserRole,
-          })); // Cast role
+          }));
+          // Also include self if assigned a role but not yet in competitors list (e.g. spectator initial state)
+          if (
+            assignedRoleAndUser &&
+            !currentUsers.find((u) => u.userId === assignedRoleAndUser.userId)
+          ) {
+            currentUsers.push(assignedRoleAndUser);
+          }
           setUsersInRoom((prev) => {
-            const existingUserIds = new Set(prev.map((u) => u.userId));
-            const newUsers = competitorUsers.filter(
-              (cu) => !existingUserIds.has(cu.userId),
-            );
-            // Make sure to update existing users too, roles might change on rejoin
-            const updatedExistingUsers = prev.map((exUser) => {
-              const updatedUser = competitorUsers.find(
-                (cu) => cu.userId === exUser.userId,
-              );
-              return updatedUser || exUser;
-            });
-            const combinedUsers = [...updatedExistingUsers];
-            newUsers.forEach((nu) => {
-              if (!combinedUsers.find((u) => u.userId === nu.userId))
-                combinedUsers.push(nu);
-            });
-            return combinedUsers;
+            const userMap = new Map(prev.map((u) => [u.userId, u]));
+            currentUsers.forEach((u) => userMap.set(u.userId, u));
+            return Array.from(userMap.values());
           });
         },
       );
-
       newSocket.on("userJoined", (data: DuelUser) => {
-        console.log("User joined:", data);
+        console.log("DuelSocket: User joined:", data);
         setUsersInRoom((prev) => {
-          if (!prev.find((u) => u.userId === data.userId))
-            return [...prev, data];
-          return prev.map((u) => (u.userId === data.userId ? data : u));
+          const existing = prev.find((u) => u.userId === data.userId);
+          if (existing)
+            return prev.map((u) => (u.userId === data.userId ? data : u));
+          return [...prev, data];
         });
       });
-
-      newSocket.on("userLeft", (data: { userId: string; role: UserRole }) => {
-        console.log("User left:", data);
+      newSocket.on("userLeft", (data: DuelUser) => {
+        console.log("DuelSocket: User left:", data);
         setUsersInRoom((prev) => prev.filter((u) => u.userId !== data.userId));
-        setDuelRoomState((prev) => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            competitors: prev.competitors.filter(
-              (c) => c.userId !== data.userId,
-            ),
-          };
-        });
+        setDuelRoomState((prev) =>
+          prev
+            ? {
+                ...prev,
+                competitors: prev.competitors.filter(
+                  (c) => c.userId !== data.userId,
+                ),
+              }
+            : null,
+        );
       });
-
       newSocket.on(
         "competitorCodeUpdated",
         (data: { userId: string; role: CompetitorRole; code: string }) => {
           setDuelRoomState((prev) => {
-            if (!prev) return { competitors: [{ ...data, language: "cpp" }] };
-            const newCompetitors = prev.competitors.map((c) =>
+            if (!prev)
+              return {
+                competitors: [
+                  { ...data, username: "Unknown", language: "cpp" },
+                ],
+              };
+            const newComps = prev.competitors.map((c) =>
               c.userId === data.userId && c.role === data.role
                 ? { ...c, code: data.code }
                 : c,
             );
             if (
-              !newCompetitors.find(
+              !newComps.find(
                 (c) => c.userId === data.userId && c.role === data.role,
               )
             ) {
-              newCompetitors.push({ ...data, language: "cpp" });
+              const missingUser = usersInRoom.find(
+                (u) => u.userId === data.userId,
+              );
+              newComps.push({
+                ...data,
+                username: missingUser?.username || "Unknown",
+                language: "cpp",
+              });
             }
-            return { ...prev, competitors: newCompetitors };
+            return { ...prev, competitors: newComps };
           });
         },
       );
-
       newSocket.on(
         "competitorLanguageUpdated",
         (data: { userId: string; role: CompetitorRole; language: string }) => {
           setDuelRoomState((prev) => {
-            if (!prev) return { competitors: [{ ...data, code: "" }] };
-            const newCompetitors = prev.competitors.map((c) =>
+            if (!prev)
+              return {
+                competitors: [{ ...data, username: "Unknown", code: "" }],
+              };
+            const newComps = prev.competitors.map((c) =>
               c.userId === data.userId && c.role === data.role
                 ? { ...c, language: data.language }
                 : c,
             );
             if (
-              !newCompetitors.find(
+              !newComps.find(
                 (c) => c.userId === data.userId && c.role === data.role,
               )
             ) {
-              newCompetitors.push({ ...data, code: "" });
+              const missingUser = usersInRoom.find(
+                (u) => u.userId === data.userId,
+              );
+              newComps.push({
+                ...data,
+                username: missingUser?.username || "Unknown",
+                code: "",
+              });
             }
-            return { ...prev, competitors: newCompetitors };
+            return { ...prev, competitors: newComps };
           });
         },
       );
-
       newSocket.on("duelProblemAssigned", (data: { problem: Problem }) => {
-        console.log("Duel problem assigned:", data.problem.title);
+        console.log("DuelSocket: Duel problem assigned:", data.problem.title);
         setDuelRoomState((prev) => ({
-          ...prev,
-          competitors: prev?.competitors || [], // Ensure competitors array exists
+          ...(prev || { competitors: [] }),
           problem: data.problem,
+          status: prev?.status || "active",
         }));
-        setDuelError(null); // Clear previous errors if problem is assigned
+        setDuelError(null);
       });
-
+      newSocket.on(
+        "duelStatusUpdate",
+        (data: {
+          status: "waiting" | "active" | "finished";
+          startTime?: number;
+          winner?: string | null;
+          forfeitedBy?: string;
+        }) => {
+          console.log("DuelSocket: Duel status update:", data);
+          setDuelRoomState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: data.status,
+                  startTime:
+                    data.startTime !== undefined
+                      ? data.startTime
+                      : prev.startTime,
+                  winner: data.winner !== undefined ? data.winner : prev.winner,
+                  forfeitedBy:
+                    data.forfeitedBy !== undefined
+                      ? data.forfeitedBy
+                      : prev.forfeitedBy,
+                }
+              : null,
+          );
+        },
+      );
+      newSocket.on(
+        "competitorSolved",
+        (data: {
+          userId: string;
+          role: CompetitorRole;
+          submissionTime: number;
+        }) => {
+          console.log("DuelSocket: Competitor solved:", data);
+          setDuelRoomState((prev) => {
+            if (!prev) return prev;
+            const newComps = prev.competitors.map((c) =>
+              c.userId === data.userId && c.role === data.role
+                ? {
+                    ...c,
+                    solvedProblem: true,
+                    submissionTime: data.submissionTime,
+                  }
+                : c,
+            );
+            return { ...prev, competitors: newComps };
+          });
+        },
+      );
+      newSocket.on("ratingsUpdated", (data: RatingsUpdatePayload) => {
+        console.log("DuelSocket: Ratings Updated received", data);
+        setRatingsUpdate(data);
+      });
       newSocket.on("duelError", (data: { message: string }) => {
-        console.error("Duel Error from server:", data.message);
+        console.error("DuelSocket: Duel Error from server:", data.message);
         setDuelError(data.message);
       });
-
       newSocket.on("connect_error", (err) => {
-        console.error("Socket connection error:", err.message);
-        setIsConnected(false);
+        console.error("DuelSocket: Connection error:", err.message);
         setDuelError(`Connection failed: ${err.message}`);
+        setIsConnected(false);
       });
     }
 
     return () => {
       if (socketRef.current) {
-        console.log("Disconnecting socket in cleanup...");
+        console.log("DuelSocket: Cleaning up socket for duel", duelIdToJoin);
         socketRef.current.disconnect();
-        socketRef.current = null; // Allow re-creation on next mount if duelIdToJoin changes
+        socketRef.current = null;
         setIsConnected(false);
       }
     };
-    // duelIdToJoin is the main dependency that should trigger connection/reconnection
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duelIdToJoin]);
 
+  // joinDuelRoom now takes AuthUser | null
   const joinDuelRoom = useCallback(
     (
       duelId: string,
-      userId: string,
+      user: AuthUser | null,
       initialCode?: string,
       initialLanguage?: string,
     ) => {
       if (socketRef.current?.connected) {
-        console.log(`Emitting joinDuel: duelId=${duelId}, userId=${userId}`);
-        socketRef.current.emit("joinDuel", {
+        // If user is null (anonymous spectator), backend will assign a generic userId/username or handle accordingly
+        const payload = {
           duelId,
-          userId,
+          userId: user?.id, // Optional: Backend will use socket.data.authUser if available
+          username: user?.username, // Optional for same reason
           initialCode,
           initialLanguage,
-        });
-      } else if (socketRef.current) {
-        // Socket exists but not connected, it will attempt to join on 'connect'
-        console.warn(
-          "Socket exists but not connected. Join will be attempted on connect.",
-        );
+        };
+        console.log(`DuelSocket: Emitting joinDuel:`, payload);
+        socketRef.current.emit("joinDuel", payload);
       } else {
-        // No socket instance, hook might need duelIdToJoin to initiate connection
         console.warn(
-          "No socket instance. Ensure duelIdToJoin is set for the hook to connect.",
+          "DuelSocket: Cannot join duel room - socket not connected.",
         );
       }
     },
     [],
-  );
+  ); // No dependencies means this function's definition doesn't change
 
   const sendCodeUpdate = useCallback(
-    (duelId: string, userId: string, code: string, role: CompetitorRole) => {
-      socketRef.current?.emit("codeUpdate", { duelId, userId, code, role });
+    (duelId: string, user: AuthUser, code: string, role: CompetitorRole) => {
+      if (socketRef.current?.connected && user) {
+        socketRef.current.emit("codeUpdate", {
+          duelId,
+          userId: user.id,
+          code,
+          role,
+        });
+      }
     },
     [],
   );
@@ -302,16 +380,37 @@ export const useDuelSocket = (duelIdToJoin?: string): UseDuelSocketReturn => {
   const sendLanguageUpdate = useCallback(
     (
       duelId: string,
-      userId: string,
+      user: AuthUser,
       language: string,
       role: CompetitorRole,
     ) => {
-      socketRef.current?.emit("languageUpdate", {
-        duelId,
-        userId,
-        language,
-        role,
-      });
+      if (socketRef.current?.connected && user) {
+        socketRef.current.emit("languageUpdate", {
+          duelId,
+          userId: user.id,
+          language,
+          role,
+        });
+      }
+    },
+    [],
+  );
+
+  const sendProblemSolved = useCallback(
+    (
+      duelId: string,
+      user: AuthUser,
+      role: CompetitorRole,
+      submissionTime: number,
+    ) => {
+      if (socketRef.current?.connected && user) {
+        socketRef.current.emit("problemSolved", {
+          duelId,
+          userId: user.id,
+          role,
+          submissionTime,
+        });
+      }
     },
     [],
   );
@@ -322,9 +421,11 @@ export const useDuelSocket = (duelIdToJoin?: string): UseDuelSocketReturn => {
     joinDuelRoom,
     sendCodeUpdate,
     sendLanguageUpdate,
+    sendProblemSolved,
     assignedRoleAndUser,
     duelRoomState,
     usersInRoom,
     duelError,
+    ratingsUpdate,
   };
 };
