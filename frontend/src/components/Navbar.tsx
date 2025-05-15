@@ -1,16 +1,16 @@
-// frontend/src/components/Navbar.tsx
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import {
   User,
-  Code,
   LogIn,
   LogOut,
   UserPlus,
   Loader2,
   Swords,
   Trophy,
-} from "lucide-react"; // Added Trophy
+  Hammer,
+  LayoutDashboard,
+} from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Navbar() {
@@ -18,55 +18,51 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     await logoutUser();
-    // Navigation to /login is now handled by the component that calls logoutUser,
-    // or by a global effect listening to isAuthenticated state.
   };
 
+  const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
+    `text-sm md:text-base px-3 py-2 rounded-md transition-all duration-150 ease-in-out flex items-center space-x-2
+     ${
+       isActive
+         ? "bg-sky-500 text-white shadow-sm"
+         : "text-gray-300 hover:bg-gray-700 hover:text-sky-300"
+     }`;
+
   return (
-    <div className="flex items-center justify-between px-4 md:px-8 py-3 bg-gray-800 shadow-md text-gray-200">
-      <Link
-        to="/"
-        className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
-      >
-        <Swords size={30} className="text-sky-400" /> {/* Changed Icon */}
-        <h1 className="text-xl md:text-2xl font-semibold">Coding Duels</h1>
+    <div className="flex items-center justify-between px-4 md:px-8 py-3 bg-gray-800 shadow-lg text-gray-200 sticky top-0 z-50">
+      <Link to="/" className="flex items-center space-x-2 group">
+        <Swords
+          size={30}
+          className="text-sky-400 group-hover:text-sky-300 transition-colors duration-200 transform group-hover:rotate-[-5deg]"
+        />
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight group-hover:text-sky-300 transition-colors duration-200">
+          CodingDuels
+        </h1>
       </Link>
-      <nav className="flex items-center space-x-2 md:space-x-4">
-        <Link
-          to="/compete"
-          className="text-sm md:text-base hover:text-sky-400 transition-colors px-2 py-1.5 md:px-3 rounded-md hover:bg-gray-700"
-        >
-          Compete
-        </Link>
-        <Link
-          to="/problems"
-          className="text-sm md:text-base hover:text-sky-400 transition-colors px-2 py-1.5 md:px-3 rounded-md hover:bg-gray-700"
-        >
-          Problems
-        </Link>
-        <Link
-          to="/tournaments"
-          className="text-sm md:text-base hover:text-sky-400 transition-colors px-2 py-1.5 md:px-3 rounded-md hover:bg-gray-700 flex items-center"
-        >
-          <Trophy size={16} className="mr-1 md:mr-2" /> Tournaments
-        </Link>
+      <nav className="flex items-center space-x-1 md:space-x-2">
+        <NavLink to="/compete" className={navLinkClasses}>
+          <Swords size={18} /> <span>Compete</span>
+        </NavLink>
+        <NavLink to="/problems" className={navLinkClasses}>
+          <Hammer size={18} /> <span>Problems</span>
+        </NavLink>
+        <NavLink to="/tournaments" className={navLinkClasses}>
+          <Trophy size={18} /> <span>Tournaments</span>
+        </NavLink>
 
         {isLoadingAuth ? (
-          <div className="flex items-center px-3 py-1.5">
-            <Loader2 size={18} className="animate-spin text-sky-400" />
+          <div className="flex items-center px-3 py-2">
+            <Loader2 size={20} className="animate-spin text-sky-400" />
           </div>
         ) : isAuthenticated ? (
           <>
-            <Link
-              to="/user"
-              className="flex items-center space-x-1 text-sm md:text-base hover:text-sky-400 transition-colors px-2 py-1.5 md:px-3 rounded-md hover:bg-gray-700"
-            >
+            <NavLink to="/user" className={navLinkClasses}>
               <User size={18} />
               <span>{user?.username}</span>
-            </Link>
+            </NavLink>
             <button
               onClick={handleLogout}
-              className="flex items-center space-x-1 text-sm md:text-base bg-red-500 hover:bg-red-600 text-white font-medium px-2 py-1.5 md:px-3 rounded-md transition-colors"
+              className="btn btn-danger btn-sm flex items-center space-x-1"
             >
               <LogOut size={18} />
               <span className="hidden md:inline">Logout</span>
@@ -74,16 +70,16 @@ export default function Navbar() {
           </>
         ) : (
           <>
-            <Link
+            <NavLink
               to="/login"
-              className="flex items-center space-x-1 text-sm md:text-base hover:text-sky-400 transition-colors px-2 py-1.5 md:px-3 rounded-md hover:bg-gray-700"
+              className="text-sm md:text-base px-3 py-2 rounded-md text-gray-300 hover:bg-gray-700 hover:text-sky-300 transition-colors duration-150 flex items-center space-x-1"
             >
               <LogIn size={18} />
               <span>Login</span>
-            </Link>
+            </NavLink>
             <Link
               to="/signup"
-              className="flex items-center space-x-1 text-sm md:text-base bg-green-500 hover:bg-green-600 text-white font-medium px-2 py-1.5 md:px-3 rounded-md transition-colors"
+              className="btn btn-success btn-sm flex items-center space-x-1"
             >
               <UserPlus size={18} />
               <span>Sign Up</span>

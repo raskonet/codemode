@@ -1,12 +1,7 @@
-// frontend/src/pages/TournamentHallPage.tsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { gql, useQuery } from "@apollo/client";
-import {
-  useTournamentSocket,
-  DuelInvitation,
-  NewTournamentDuelInfo,
-} from "../hooks/useTournamentSocket";
+import { useTournamentSocket } from "../hooks/useTournamentSocket";
 import { useAuth } from "../hooks/useAuth";
 import {
   Loader2,
@@ -18,7 +13,13 @@ import {
   Info,
   Eye,
   AlertTriangle,
+  Swords,
+  CalendarDays,
+  Video as VideoIcon,
+  ListChecks,
+  Shuffle,
 } from "lucide-react";
+import toast from "react-hot-toast";
 
 const GET_TOURNAMENT_DETAILS_QUERY = gql`
   query GetTournament($tournamentId: ID!) {
@@ -26,6 +27,7 @@ const GET_TOURNAMENT_DETAILS_QUERY = gql`
       id
       name
       status
+      pairingSystem
       organizer {
         id
         username
@@ -36,7 +38,6 @@ const GET_TOURNAMENT_DETAILS_QUERY = gql`
       curatedProblemIds
       createdAt
       participants {
-        # Get initial list of participants
         user {
           id
           username
@@ -48,15 +49,17 @@ const GET_TOURNAMENT_DETAILS_QUERY = gql`
   }
 `;
 
-// Simplified Tournament type for this page based on GQL query
 interface TournamentPageData {
   id: string;
   name: string;
   status: string;
+  pairingSystem: string;
   organizer: { id: string; username: string };
   maxParticipants?: number | null;
   hasVideo: boolean;
   problemSetType: string;
+  curatedProblemIds: string[];
+  createdAt: string;
   participants: Array<{
     user: { id: string; username: string; rating: number };
     isActive: boolean;
@@ -68,34 +71,15 @@ export default function TournamentHallPage() {
   const navigate = useNavigate();
   const { user: authUser, isAuthenticated, isLoadingAuth } = useAuth();
 
-  // Fetch initial static tournament details
   const {
     data: gqlTournamentData,
     loading: gqlLoading,
     error: gqlError,
-    refetch: refetchGqlTournament,
   } = useQuery<{ getTournament: TournamentPageData }>(
     GET_TOURNAMENT_DETAILS_QUERY,
-    {
-      variables: { tournamentId },
-      skip: !tournamentId, // Don't run if no tournamentId
-      onCompleted: (data) => {
-        // Can use this to update initial hallState in useTournamentSocket if needed,
-        // but socket's 'hallState' event is primary for dynamic data.
-        if (data && data.getTournament) {
-          // Update local state if socket hook doesn't provide it first or is slower
-          if (
-            socketHook.hallState === null ||
-            socketHook.hallState.tournamentDetails?.id !== data.getTournament.id
-          ) {
-            // This is a bit redundant if socket also sends tournamentDetails, pick one source of truth
-          }
-        }
-      },
-    },
+    { variables: { tournamentId }, skip: !tournamentId },
   );
 
-  // Socket hook for real-time updates
   const socketHook = useTournamentSocket(tournamentId, authUser);
   const {
     isConnected,
@@ -103,44 +87,71 @@ export default function TournamentHallPage() {
     duelInvitations,
     activeTournamentDuels,
     hallError,
-    // joinTournamentHall is called by the hook itself
     kickParticipant,
     startNextRound,
     clearLastInvitation,
   } = socketHook;
 
-  const [showKickConfirm, setShowKickConfirm] = useState<string | null>(null); // userId to kick
+  const [showKickConfirm, setShowKickConfirm] = useState<string | null>(null);
 
-  // Handle duel invitations
   useEffect(() => {
     if (duelInvitations.length > 0) {
-      const latestInvitation = duelInvitations[duelInvitations.length - 1]; // Get the most recent one
-      const joinDuel = window.confirm(
-        `You've been invited to a duel against ${latestInvitation.opponentUsername}!\nDuel ID: ${latestInvitation.duelId}\n\nJoin now?`,
+      const latestInvitation = duelInvitations[duelInvitations.length - 1];
+      toast(
+        (t) => (
+          <div className="flex flex-col items-start">
+            <strong className="text-sky-300 mb-1">Duel Invitation!</strong>
+            <p className="text-sm mb-2">
+              You vs{" "}
+              <span className="font-semibold">
+                {latestInvitation.opponentUsername}
+              </span>
+              .
+            </p>
+            <p className="text-xs text-gray-400 mb-3">
+              Duel ID: {latestInvitation.duelId}
+            </p>
+            <div className="w-full flex gap-2">
+              <button
+                className="btn btn-success btn-sm flex-1"
+                onClick={() => {
+                  navigate(`/compete/${latestInvitation.duelId}`);
+                  toast.dismiss(t.id);
+                }}
+              >
+                Accept
+              </button>
+              <button
+                className="btn btn-secondary btn-sm flex-1"
+                onClick={() => toast.dismiss(t.id)}
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        ),
+        {
+          duration: 15000,
+          icon: <Swords size={20} className="text-sky-400" />,
+        },
       );
-      if (joinDuel) {
-        navigate(`/compete/${latestInvitation.duelId}`);
-      }
-      clearLastInvitation(); // Clear it after handling
+      clearLastInvitation();
     }
   }, [duelInvitations, navigate, clearLastInvitation]);
 
   if (isLoadingAuth || (gqlLoading && !hallState)) {
-    // Show loading if either GQL or auth is loading initially
     return (
-      <div className="text-center p-10 text-white">
-        <Loader2 className="h-12 w-12 animate-spin mx-auto text-sky-400" />
-        <p className="mt-2">Loading Tournament Hall...</p>
+      <div className="text-center p-10">
+        <Loader2 className="h-16 w-16 animate-spin mx-auto text-sky-400" />
+        <p className="mt-3 text-lg">Loading Tournament Hall...</p>
       </div>
     );
   }
-
   if (!isAuthenticated && !isLoadingAuth) {
-    // Check after auth loading is done
     return (
-      <div className="text-center p-10 text-red-400">
+      <div className="text-center p-10 text-red-400 text-lg">
         Please{" "}
-        <Link to="/login" className="underline">
+        <Link to="/login" className="underline font-semibold">
           log in
         </Link>{" "}
         to view the tournament hall.
@@ -148,17 +159,15 @@ export default function TournamentHallPage() {
     );
   }
 
-  if (gqlError) {
+  if (gqlError)
     return (
-      <div className="text-center p-10 text-red-400">
-        Error loading tournament details: {gqlError.message}
+      <div className="text-center p-10 text-red-400 text-lg">
+        Error loading tournament: {gqlError.message}
       </div>
     );
-  }
   if (hallError && (!hallState || hallState.tournamentId !== tournamentId)) {
-    // Show hallError if critical (e.g., can't join)
     return (
-      <div className="text-center p-10 text-red-400">
+      <div className="text-center p-10 text-red-400 text-lg">
         Error in tournament hall: {hallError}
       </div>
     );
@@ -170,107 +179,120 @@ export default function TournamentHallPage() {
     hallState?.participants ||
     gqlTournamentData?.getTournament.participants
       .filter((p) => p.isActive)
-      .map((p) => ({ ...p.user, socketId: "" })) ||
+      .map((p) => ({ ...p.user, socketId: "" /* socketId not from GQL */ })) ||
     [];
   const isOrganizer =
     authUser &&
     currentTournamentDetails &&
-    authUser.id === currentTournamentDetails.organizerId;
+    authUser.id === currentTournamentDetails.organizer.id;
 
   if (!currentTournamentDetails) {
-    if (!gqlLoading && !isLoadingAuth) {
-      // If done loading and still no details
+    if (!gqlLoading && !isLoadingAuth)
       return (
-        <div className="text-center p-10 text-orange-400">
-          Tournament not found or unable to load details. It might be an invalid
-          ID or the tournament has ended.
+        <div className="text-center p-10 text-orange-400 text-lg">
+          Tournament not found or unable to load details.
         </div>
       );
-    }
     return (
-      <div className="text-center p-10 text-white">
-        <Loader2 className="h-12 w-12 animate-spin mx-auto text-sky-400" />
-        <p className="mt-2">Fetching details...</p>
+      <div className="text-center p-10">
+        <Loader2 className="h-16 w-16 animate-spin mx-auto text-sky-400" />
+        <p className="mt-3 text-lg">Fetching details...</p>
       </div>
     );
   }
 
+  const statusColors: Record<string, string> = {
+    PENDING: "bg-yellow-500/80 text-yellow-900",
+    ACTIVE: "bg-blue-500/80 text-blue-100",
+    COMPLETED: "bg-gray-600/80 text-gray-200",
+    CANCELLED: "bg-red-600/80 text-red-100",
+  };
+
   return (
-    <div className="container mx-auto px-2 md:px-4 py-8 text-white">
-      <header className="mb-6 p-4 bg-gray-800 rounded-lg shadow-md">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+    <div className="container mx-auto px-2 md:px-4 py-8">
+      <header className="mb-6 p-5 bg-gray-800 rounded-xl shadow-xl border border-gray-700">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-sky-400 mb-1">
               {currentTournamentDetails.name}
             </h1>
             <p className="text-sm text-gray-400">
               Organized by:{" "}
-              {currentTournamentDetails.organizerUsername ||
-                currentTournamentDetails.organizer.username}
+              <span className="font-medium text-gray-300">
+                {currentTournamentDetails.organizer.username}
+              </span>
             </p>
           </div>
           <span
-            className={`mt-2 md:mt-0 px-3 py-1.5 text-sm font-semibold rounded-full
-                ${currentTournamentDetails.status === "PENDING" ? "bg-yellow-500/80 text-yellow-900" : ""}
-                ${currentTournamentDetails.status === "ACTIVE" ? "bg-blue-500/80 text-blue-100" : ""}
-                ${currentTournamentDetails.status === "COMPLETED" ? "bg-gray-600/80 text-gray-200" : ""}
-            `}
+            className={`px-3.5 py-1.5 text-sm font-semibold rounded-full ${statusColors[currentTournamentDetails.status] || "bg-gray-500 text-gray-100"}`}
           >
-            Status: {currentTournamentDetails.status}
+            {currentTournamentDetails.status}
           </span>
         </div>
-        <div className="mt-3 text-xs text-gray-500">
-          Socket:{" "}
-          {isConnected ? (
-            <span className="text-green-500">Connected</span>
-          ) : (
-            <span className="text-red-500">Disconnected</span>
-          )}
+        <div className="mt-3 text-xs text-gray-500 flex items-center gap-x-3">
+          <span>
+            Socket:{" "}
+            {isConnected ? (
+              <span className="text-green-400 font-semibold">Live</span>
+            ) : (
+              <span className="text-red-400 font-semibold">Offline</span>
+            )}
+          </span>
           {hallError && (
-            <span className="ml-2 text-red-400">Error: {hallError}</span>
+            <span className="text-red-400">Error: {hallError}</span>
           )}
+          <span className="flex items-center">
+            <CalendarDays size={12} className="mr-1" />
+            Created:{" "}
+            {new Date(currentTournamentDetails.createdAt).toLocaleDateString()}
+          </span>
         </div>
       </header>
 
-      {isOrganizer && currentTournamentDetails.status === "PENDING" && (
-        <div className="mb-6 p-4 bg-green-800/30 border border-green-700 rounded-lg">
-          <h3 className="text-xl font-semibold text-green-300 mb-2">
-            Organizer Controls
-          </h3>
-          <button
-            onClick={() => startNextRound(currentTournamentDetails.id)}
-            disabled={
-              participants.length < 2 &&
-              currentTournamentDetails.pairingSystem === "RANDOM"
-            }
-            className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded shadow-md flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+      {isOrganizer &&
+        (currentTournamentDetails.status === "PENDING" ||
+          currentTournamentDetails.status === "ACTIVE") && (
+          <div
+            className={`mb-6 p-4 rounded-lg border ${currentTournamentDetails.status === "PENDING" ? "bg-green-800/20 border-green-700" : "bg-blue-800/20 border-blue-700"}`}
           >
-            <Play size={18} className="mr-2" /> Start First Round
-          </button>
-          {participants.length < 2 &&
-            currentTournamentDetails.pairingSystem === "RANDOM" && (
-              <p className="text-xs text-yellow-400 mt-1">
-                Need at least 2 participants to start with random pairing.
+            <h3 className="text-xl font-semibold mb-3 flex items-center text-gray-100">
+              <ShieldCheck size={22} className="mr-2 text-green-400" />
+              Organizer Controls
+            </h3>
+            {currentTournamentDetails.status === "PENDING" && (
+              <>
+                <button
+                  onClick={() => startNextRound(currentTournamentDetails.id)}
+                  disabled={
+                    participants.length < 2 &&
+                    currentTournamentDetails.pairingSystem === "RANDOM"
+                  } // Simple check, Swiss needs more
+                  className="btn btn-success flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play size={18} className="mr-2" /> Start First Round
+                </button>
+                {participants.length < 2 &&
+                  currentTournamentDetails.pairingSystem === "RANDOM" && (
+                    <p className="text-xs text-yellow-300 mt-1.5">
+                      Need at least 2 participants for random pairing.
+                    </p>
+                  )}
+              </>
+            )}
+            {currentTournamentDetails.status === "ACTIVE" && (
+              <p className="text-blue-300 text-sm">
+                <Info size={16} className="inline mr-1.5" /> Tournament is
+                active. Advanced round controls (e.g., for Swiss) are under
+                development.
               </p>
             )}
-        </div>
-      )}
-      {isOrganizer &&
-        currentTournamentDetails.status ===
-          "ACTIVE" /* Assuming one round for now */ && (
-          <div className="mb-6 p-4 bg-yellow-800/30 border border-yellow-700 rounded-lg">
-            <p className="text-yellow-300">
-              <Info size={16} className="inline mr-1" /> Tournament is active.
-              Manual round progression or ending tournament to be implemented.
-            </p>
           </div>
         )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Participants List */}
-        <div className="md:col-span-1 bg-gray-800 p-4 rounded-lg shadow-md">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1 card bg-gray-800 p-5 rounded-xl shadow-lg border border-gray-700">
           <h2 className="text-2xl font-semibold mb-4 text-gray-100 flex items-center">
-            <Users size={24} className="mr-2 text-sky-400" /> Participants (
+            <Users size={24} className="mr-2.5 text-sky-400" /> Participants (
             {participants.length}
             {currentTournamentDetails.maxParticipants
               ? `/${currentTournamentDetails.maxParticipants}`
@@ -278,23 +300,27 @@ export default function TournamentHallPage() {
             )
           </h2>
           {participants.length === 0 && (
-            <p className="text-gray-500">No participants have joined yet.</p>
+            <p className="text-gray-500 italic">
+              No participants yet. Waiting for duelists...
+            </p>
           )}
-          <ul className="space-y-2 max-h-[400px] overflow-y-auto">
+          <ul className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
             {participants.map((p) => (
               <li
                 key={p.userId}
-                className="flex justify-between items-center bg-gray-700/50 p-2.5 rounded-md"
+                className="flex justify-between items-center bg-gray-700/60 p-3 rounded-lg shadow-sm hover:bg-gray-700 transition-colors"
               >
                 <div className="flex items-center">
-                  {p.userId === currentTournamentDetails.organizerId && (
+                  {p.userId === currentTournamentDetails.organizer.id && (
                     <Crown
                       size={16}
                       className="mr-2 text-yellow-400"
                       title="Organizer"
                     />
                   )}
-                  <span className="font-medium">{p.username}</span>
+                  <span className="font-medium text-gray-200">
+                    {p.username}
+                  </span>
                   <span className="text-xs text-gray-400 ml-2">
                     ({p.rating} Elo)
                   </span>
@@ -302,69 +328,97 @@ export default function TournamentHallPage() {
                 {isOrganizer &&
                   authUser &&
                   p.userId !== authUser.id &&
-                  currentTournamentDetails.status === "PENDING" && (
+                  (currentTournamentDetails.status === "PENDING" ||
+                    currentTournamentDetails.status === "ACTIVE") && (
                     <button
                       onClick={() => setShowKickConfirm(p.userId)}
-                      className="text-red-500 hover:text-red-400 p-1 rounded hover:bg-red-500/20"
+                      className="text-red-500 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
+                      title={`Kick ${p.username}`}
                     >
-                      <UserX size={16} />
+                      <UserX size={18} />
                     </button>
                   )}
-                {showKickConfirm === p.userId && (
-                  <div className="absolute bg-gray-900 p-3 rounded shadow-xl border border-red-500 z-10 right-0 mr-4 -mt-8">
-                    <p className="text-sm mb-2">Kick {p.username}?</p>
-                    <button
-                      onClick={() => {
-                        kickParticipant(currentTournamentDetails.id, p.userId);
-                        setShowKickConfirm(null);
-                      }}
-                      className="bg-red-600 px-2 py-1 text-xs rounded mr-1"
-                    >
-                      Yes, Kick
-                    </button>
-                    <button
-                      onClick={() => setShowKickConfirm(null)}
-                      className="bg-gray-600 px-2 py-1 text-xs rounded"
-                    >
-                      No
-                    </button>
-                  </div>
-                )}
               </li>
             ))}
           </ul>
+          {showKickConfirm && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-800 p-6 rounded-lg shadow-xl border border-red-600 max-w-sm w-full">
+                <h3 className="text-lg font-semibold mb-4 text-red-300">
+                  Confirm Kick
+                </h3>
+                <p className="mb-6 text-gray-300">
+                  Are you sure you want to kick participant{" "}
+                  <span className="font-bold">
+                    {
+                      participants.find((par) => par.userId === showKickConfirm)
+                        ?.username
+                    }
+                  </span>
+                  ?
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowKickConfirm(null)}
+                    className="btn btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      kickParticipant(
+                        currentTournamentDetails.id,
+                        showKickConfirm,
+                      );
+                      setShowKickConfirm(null);
+                      toast.success("Participant kicked.");
+                    }}
+                    className="btn btn-danger"
+                  >
+                    Yes, Kick
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Duels for current round / Tournament Info */}
-        <div className="md:col-span-2 bg-gray-800 p-4 rounded-lg shadow-md">
+        <div className="lg:col-span-2 card bg-gray-800 p-5 rounded-xl shadow-lg border border-gray-700">
           <h2 className="text-2xl font-semibold mb-4 text-gray-100">
             Tournament Activity
           </h2>
           {currentTournamentDetails.status === "PENDING" && (
-            <p className="text-yellow-400">
-              <Info size={16} className="inline mr-1" />
-              Waiting for the organizer to start the tournament.
+            <p className="text-yellow-300 text-sm">
+              <Info size={16} className="inline mr-1.5" />
+              Waiting for the organizer to start the tournament. Get ready!
             </p>
           )}
+
           {activeTournamentDuels.length > 0 && (
             <>
-              <h3 className="text-xl font-medium mb-2 text-sky-300">
+              <h3 className="text-xl font-medium mb-3 text-sky-300">
                 Active Duels:
               </h3>
-              <ul className="space-y-2">
+              <ul className="space-y-2.5">
                 {activeTournamentDuels.map((duel) => (
                   <li
                     key={duel.duelId}
-                    className="bg-gray-700/50 p-2.5 rounded-md text-sm"
+                    className="bg-gray-700/60 p-3 rounded-lg text-sm shadow-sm hover:bg-gray-700 transition-colors"
                   >
                     <Link
                       to={`/compete/${duel.duelId}`}
-                      className="hover:text-sky-400 flex items-center justify-between"
+                      className="hover:text-sky-300 flex items-center justify-between text-gray-200"
                     >
                       <span>
-                        {duel.p1.username} vs {duel.p2.username}
+                        <span className="font-semibold">
+                          {duel.p1.username}
+                        </span>{" "}
+                        vs{" "}
+                        <span className="font-semibold">
+                          {duel.p2.username}
+                        </span>
                       </span>
-                      <Eye size={16} className="opacity-70" />
+                      <Eye size={18} className="opacity-80" />
                     </Link>
                   </li>
                 ))}
@@ -373,35 +427,50 @@ export default function TournamentHallPage() {
           )}
           {currentTournamentDetails.status === "ACTIVE" &&
             activeTournamentDuels.length === 0 && (
-              <p className="text-gray-400">
-                No active duels for this round yet, or round is complete.
+              <p className="text-gray-400 italic">
+                No active duels for this round, or round is complete.
               </p>
             )}
           {currentTournamentDetails.status === "COMPLETED" && (
-            <p className="text-green-400 font-semibold">
-              <Trophy size={18} className="inline mr-1" /> Tournament Completed!
+            <p className="text-green-400 font-semibold text-lg">
+              <Crown size={20} className="inline mr-1.5" /> Tournament
+              Completed! Check final standings.
             </p>
           )}
 
-          <div className="mt-6 border-t border-gray-700 pt-4">
-            <h4 className="text-md font-semibold text-gray-300 mb-1">
-              Tournament Settings:
+          <div className="mt-6 border-t border-gray-700 pt-5">
+            <h4 className="text-md font-semibold text-gray-300 mb-2">
+              Tournament Info:
             </h4>
-            <p className="text-xs text-gray-400">
-              Video Monitoring:{" "}
-              {currentTournamentDetails.hasVideo ? "Enabled" : "Disabled"}
-            </p>
-            <p className="text-xs text-gray-400">
-              Problem Set:{" "}
-              {currentTournamentDetails.problemSetType.replace(/_/g, " ")}
-            </p>
-            {currentTournamentDetails.problemSetType === "CURATED" &&
-              currentTournamentDetails.curatedProblemIds.length > 0 && (
-                <p className="text-xs text-gray-400">
-                  Problem IDs:{" "}
-                  {currentTournamentDetails.curatedProblemIds.join(", ")}
-                </p>
-              )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-400">
+              <p className="flex items-center">
+                <VideoIcon size={14} className="mr-1.5 text-sky-400" />
+                Video:{" "}
+                {currentTournamentDetails.hasVideo ? "Enabled" : "Disabled"}
+              </p>
+              <p className="flex items-center">
+                {currentTournamentDetails.problemSetType === "CURATED" ? (
+                  <ListChecks size={14} className="mr-1.5 text-sky-400" />
+                ) : (
+                  <Shuffle size={14} className="mr-1.5 text-sky-400" />
+                )}
+                Problems:{" "}
+                {currentTournamentDetails.problemSetType.replace(/_/g, " ")}
+              </p>
+              {currentTournamentDetails.problemSetType === "CURATED" &&
+                currentTournamentDetails.curatedProblemIds.length > 0 && (
+                  <p className="sm:col-span-2">
+                    IDs:{" "}
+                    <span className="text-gray-300">
+                      {currentTournamentDetails.curatedProblemIds.join(", ")}
+                    </span>
+                  </p>
+                )}
+              <p className="flex items-center">
+                <Users size={14} className="mr-1.5 text-sky-400" />
+                Pairing: {currentTournamentDetails.pairingSystem}
+              </p>
+            </div>
           </div>
         </div>
       </div>

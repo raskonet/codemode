@@ -1,5 +1,4 @@
-// frontend/src/App.tsx
-import React from "react"; // Added React import for JSX if not implicitly available
+import React from "react";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -7,10 +6,10 @@ import {
   RouterProvider,
 } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { AuthProvider } from "./contexts/AuthContext"; // Ensure path is correct
+import { AuthProvider } from "./contexts/AuthContext";
 
 // Layouts
-import LandingLayout from "./layouts/LandingLayout"; // Corrected import for LandingLayout
+import LandingLayout from "./layouts/LandingLayout";
 
 // Pages
 import HomePage from "./pages/HomePage";
@@ -24,25 +23,9 @@ import CreateTournamentPage from "./pages/CreateTournamentPage";
 import TournamentsListPage from "./pages/TournamentsListPage";
 import TournamentHallPage from "./pages/TournamentHallPage";
 
-/*
-const TournamentHallPage = () => (
-  <div className="p-6 text-white bg-gray-850 min-h-screen">
-    <h1 className="text-3xl font-bold text-sky-400">Tournament Hall</h1>
-    <p className="mt-4 text-gray-300">
-      This page is under construction. Hall details and participant list will
-      appear here soon!
-    </p>
-    <p className="mt-2 text-sm text-gray-500">
-      (Component: TournamentHallPage.tsx)
-    </p>
-  </div>
-);
-*/
-
 function App() {
   const router = createBrowserRouter(
     createRoutesFromElements(
-      // LandingLayout will contain the Navbar and an <Outlet /> for child routes
       <Route path="/" element={<LandingLayout />}>
         <Route index element={<HomePage />} />
         <Route path="login" element={<LoginPage />} />
@@ -54,19 +37,40 @@ function App() {
         <Route path="tournaments/create" element={<CreateTournamentPage />} />
         <Route path="tournaments" element={<TournamentsListPage />} />
         <Route path="hall/:tournamentId" element={<TournamentHallPage />} />
-        {/* Using placeholder */}
         <Route path="user/:userId" element={<ProfilePage />} />
-        <Route path="user" element={<ProfilePage />} />{" "}
-        {/* Default user route, could be current user's profile */}
+        <Route path="user" element={<ProfilePage />} />
       </Route>,
     ),
   );
 
   return (
-    // AuthProvider wraps RouterProvider to provide auth context to all routes
     <AuthProvider>
       <RouterProvider router={router} />
-      <Toaster />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          className: "",
+          style: {
+            background: "#374151", // bg-gray-700
+            color: "#F3F4F6", // text-gray-100
+            border: "1px solid #4B5563", // border-gray-600
+            boxShadow:
+              "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
+          },
+          success: {
+            iconTheme: {
+              primary: "#34D399", // green-400
+              secondary: "#F3F4F6",
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: "#F87171", // red-400
+              secondary: "#F3F4F6",
+            },
+          },
+        }}
+      />
     </AuthProvider>
   );
 }

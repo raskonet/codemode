@@ -8,7 +8,7 @@ interface Props {
 }
 
 export default function CodeEditor({ language, value, onChange }: Props) {
-  const handleChange = (currentValue: string | undefined /*, event */) => {
+  const handleChange = (currentValue: string | undefined) => {
     onChange(currentValue || "");
   };
 
@@ -18,8 +18,8 @@ export default function CodeEditor({ language, value, onChange }: Props) {
 
   return (
     <Editor
-      height="100vh"
-      width="100vh"
+      height="100%"
+      width="100%"
       defaultLanguage={language}
       language={language}
       value={value}
@@ -32,6 +32,12 @@ export default function CodeEditor({ language, value, onChange }: Props) {
         wordWrap: "on",
         fontSize: 14,
         scrollBeyondLastLine: false,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8,
+        },
+        cursorSmoothCaretAnimation: "on",
+        smoothScrolling: true,
       }}
     />
   );

@@ -1,16 +1,16 @@
-// frontend/src/pages/CreateTournamentPage.tsx
 import React, { useState } from "react";
 import { gql, useMutation } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import { Loader2, PlusCircle, Video, ListChecks, Shuffle } from "lucide-react";
+import toast from "react-hot-toast";
 
 const CREATE_TOURNAMENT_MUTATION = gql`
   mutation CreateTournament(
     $name: String!
     $maxParticipants: Int
     $hasVideo: Boolean
-    $problemSetType: String # Ensure this matches your GQL enum or String type
+    $problemSetType: String
     $curatedProblemIds: [String!]
   ) {
     createTournament(
@@ -27,7 +27,6 @@ const CREATE_TOURNAMENT_MUTATION = gql`
   }
 `;
 
-// Assuming problemSetType can be "RANDOM_LEETCODE", "RANDOM_CODEFORCES", "CURATED"
 type ProblemSetType = "RANDOM_LEETCODE" | "RANDOM_CODEFORCES" | "CURATED";
 
 export default function CreateTournamentPage() {
@@ -40,32 +39,37 @@ export default function CreateTournamentPage() {
   const [hasVideo, setHasVideo] = useState(false);
   const [problemSetType, setProblemSetType] =
     useState<ProblemSetType>("RANDOM_LEETCODE");
-  const [curatedProblemIds, setCuratedProblemIds] = useState(""); // Comma-separated string
+  const [curatedProblemIds, setCuratedProblemIds] = useState("");
 
   const [createTournament, { loading: creatingTournament, error }] =
     useMutation(CREATE_TOURNAMENT_MUTATION, {
       onCompleted: (data) => {
         if (data.createTournament) {
-          console.log("Tournament created:", data.createTournament);
-          navigate(`/hall/${data.createTournament.id}`); // Navigate to the new tournament hall
+          toast.success(`Tournament "${data.createTournament.name}" created!`);
+          navigate(`/hall/${data.createTournament.id}`);
         }
       },
       onError: (err) => {
-        console.error("Error creating tournament:", err);
-        // Error state is handled by the `error` variable from useMutation
+        toast.error(
+          err.graphQLErrors?.[0]?.message ||
+            err.message ||
+            "Failed to create tournament.",
+        );
       },
     });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert("Tournament name is required.");
+      toast.error("Tournament name is required.");
       return;
     }
     let problemIdsArray: string[] | undefined;
     if (problemSetType === "CURATED") {
       if (!curatedProblemIds.trim()) {
-        alert("Please provide comma-separated problem IDs for a curated set.");
+        toast.error(
+          "Please provide comma-separated problem IDs for a curated set.",
+        );
         return;
       }
       problemIdsArray = curatedProblemIds
@@ -73,7 +77,9 @@ export default function CreateTournamentPage() {
         .map((id) => id.trim())
         .filter((id) => id);
       if (problemIdsArray.length === 0) {
-        alert("Curated problem set requires at least one valid problem ID.");
+        toast.error(
+          "Curated problem set requires at least one valid problem ID.",
+        );
         return;
       }
     }
@@ -92,8 +98,8 @@ export default function CreateTournamentPage() {
 
   if (isLoadingAuth) {
     return (
-      <div className="text-center p-10 text-white">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto" />
+      <div className="text-center p-10">
+        <Loader2 className="h-12 w-12 animate-spin mx-auto text-sky-400" />
       </div>
     );
   }
@@ -106,18 +112,18 @@ export default function CreateTournamentPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 text-white max-w-2xl">
-      <h1 className="text-4xl font-bold mb-8 text-center text-sky-400">
-        Create New Tournament
+    <div className="container mx-auto px-4 py-8 max-w-2xl">
+      <h1 className="text-4xl font-bold mb-10 text-center text-sky-400 flex items-center justify-center">
+        <PlusCircle size={36} className="mr-3" /> Create New Tournament
       </h1>
       <form
         onSubmit={handleSubmit}
-        className="space-y-6 bg-gray-800 p-6 md:p-8 rounded-xl shadow-xl"
+        className="space-y-6 card bg-gray-800 p-6 md:p-8 rounded-xl shadow-2xl"
       >
         <div>
           <label
             htmlFor="name"
-            className="block text-sm font-medium text-gray-300 mb-1"
+            className="block text-sm font-medium text-gray-300 mb-1.5"
           >
             Tournament Name
           </label>
@@ -127,13 +133,13 @@ export default function CreateTournamentPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
           />
         </div>
         <div>
           <label
             htmlFor="maxParticipants"
-            className="block text-sm font-medium text-gray-300 mb-1"
+            className="block text-sm font-medium text-gray-300 mb-1.5"
           >
             Max Participants (optional)
           </label>
@@ -147,73 +153,86 @@ export default function CreateTournamentPage() {
               )
             }
             min="2"
-            className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
           />
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center space-x-3 p-3 bg-gray-700/50 rounded-lg">
           <input
             type="checkbox"
             id="hasVideo"
             checked={hasVideo}
             onChange={(e) => setHasVideo(e.target.checked)}
-            className="h-4 w-4 text-sky-500 bg-gray-700 border-gray-600 rounded focus:ring-sky-500"
+            className="h-5 w-5 text-sky-500 bg-gray-700 border-gray-600 rounded focus:ring-sky-500 cursor-pointer"
           />
-          <label htmlFor="hasVideo" className="ml-2 text-sm text-gray-300">
-            Enable Video Monitoring (feature not fully implemented)
+          <label
+            htmlFor="hasVideo"
+            className="text-sm text-gray-300 flex items-center cursor-pointer"
+          >
+            <Video size={18} className="mr-2 text-sky-400" /> Enable Video
+            (feature in progress)
           </label>
         </div>
         <div>
           <label
             htmlFor="problemSetType"
-            className="block text-sm font-medium text-gray-300 mb-1"
+            className="block text-sm font-medium text-gray-300 mb-1.5"
           >
             Problem Set Type
           </label>
-          <select
-            id="problemSetType"
-            value={problemSetType}
-            onChange={(e) =>
-              setProblemSetType(e.target.value as ProblemSetType)
-            }
-            className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="RANDOM_LEETCODE">Random LeetCode</option>
-            <option value="RANDOM_CODEFORCES">Random Codeforces</option>
-            <option value="CURATED">Curated (Provide IDs)</option>
-          </select>
+          <div className="relative">
+            <select
+              id="problemSetType"
+              value={problemSetType}
+              onChange={(e) =>
+                setProblemSetType(e.target.value as ProblemSetType)
+              }
+              className="w-full appearance-none px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 pr-8"
+            >
+              <option value="RANDOM_LEETCODE">Random LeetCode</option>
+              <option value="RANDOM_CODEFORCES">Random Codeforces</option>
+              <option value="CURATED">Curated (Provide IDs)</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+              {problemSetType === "CURATED" ? (
+                <ListChecks size={20} />
+              ) : (
+                <Shuffle size={20} />
+              )}
+            </div>
+          </div>
         </div>
         {problemSetType === "CURATED" && (
           <div>
             <label
               htmlFor="curatedProblemIds"
-              className="block text-sm font-medium text-gray-300 mb-1"
+              className="block text-sm font-medium text-gray-300 mb-1.5"
             >
-              Curated Problem IDs (comma-separated LeetCode slugs)
+              Curated Problem IDs (LeetCode slugs, comma-separated)
             </label>
             <input
               type="text"
               id="curatedProblemIds"
               value={curatedProblemIds}
               onChange={(e) => setCuratedProblemIds(e.target.value)}
-              placeholder="e.g., two-sum,reverse-string"
-              className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              placeholder="e.g., two-sum, reverse-linked-list"
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
           </div>
         )}
         {error && (
-          <p className="text-red-400 bg-red-900/30 p-3 rounded text-sm">
+          <p className="text-red-400 bg-red-900/30 p-3.5 rounded-md text-sm border border-red-700">
             Error:{" "}
-            {error.graphQLErrors.map(({ message }, i) => message).join(", ") ||
+            {error.graphQLErrors.map(({ message }) => message).join(", ") ||
               error.message}
           </p>
         )}
         <button
           type="submit"
           disabled={creatingTournament}
-          className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-md transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+          className="w-full btn btn-success text-lg flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {creatingTournament && (
-            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <Loader2 className="h-6 w-6 animate-spin mr-2.5" />
           )}
           {creatingTournament ? "Creating..." : "Create Tournament"}
         </button>

@@ -1,41 +1,44 @@
-// frontend/src/pages/LoginPage.tsx
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom"; // useNavigate is fine HERE
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { LogIn, Loader2, UserCircle } from "lucide-react";
+import toast from "react-hot-toast";
 
 export default function LoginPage() {
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
-  const { loginUser, isLoadingAuth, authError } = useAuth();
-  const navigate = useNavigate(); // Called within a route component - OK
+  const { loginUser, isLoadingAuth } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.state?.from?.pathname || "/";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!emailOrUsername || !password) {
+      toast.error("Please fill in all fields.");
+      return;
+    }
     const loggedInUser = await loginUser({ emailOrUsername, password });
     if (loggedInUser) {
-      navigate("/"); // Navigate on success
+      toast.success(`Welcome back, ${loggedInUser.username}!`);
+      navigate(from, { replace: true });
+    } else {
+      toast.error("Login failed. Please check your credentials.");
     }
-    // authError will be displayed from context if loginUser sets it
   };
 
-  // ... rest of your LoginPage JSX (form, error display, etc.) ...
-  // (This part remains the same as the previous correct version)
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md bg-gray-800 p-8 rounded-xl shadow-2xl">
-        <h2 className="text-3xl font-bold text-center text-sky-400 mb-8">
-          Login
-        </h2>
-        {authError && (
-          <p className="bg-red-500/30 text-red-300 p-3 rounded mb-4 text-sm">
-            {authError}
-          </p>
-        )}
+    <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700">
+        <div className="text-center mb-8">
+          <UserCircle size={48} className="mx-auto text-sky-400 mb-3" />
+          <h2 className="text-3xl font-bold text-gray-100">Member Login</h2>
+        </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label
               htmlFor="emailOrUsername"
-              className="block text-sm font-medium text-gray-300 mb-1"
+              className="block text-sm font-medium text-gray-300 mb-1.5"
             >
               Username or Email
             </label>
@@ -46,7 +49,7 @@ export default function LoginPage() {
               required
               value={emailOrUsername}
               onChange={(e) => setEmailOrUsername(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-shadow"
               placeholder="your_username or email@example.com"
               disabled={isLoadingAuth}
             />
@@ -54,7 +57,7 @@ export default function LoginPage() {
           <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-gray-300 mb-1"
+              className="block text-sm font-medium text-gray-300 mb-1.5"
             >
               Password
             </label>
@@ -65,7 +68,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-shadow"
               placeholder="••••••••"
               disabled={isLoadingAuth}
             />
@@ -73,9 +76,14 @@ export default function LoginPage() {
           <div>
             <button
               type="submit"
-              className="w-full py-3 px-4 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-lg shadow-md transition-transform duration-150 ease-in-out transform hover:scale-102 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full btn btn-primary text-lg flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
               disabled={isLoadingAuth}
             >
+              {isLoadingAuth ? (
+                <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              ) : (
+                <LogIn size={20} className="mr-2" />
+              )}
               {isLoadingAuth ? "Signing In..." : "Sign In"}
             </button>
           </div>
@@ -84,7 +92,7 @@ export default function LoginPage() {
           Don't have an account?{" "}
           <Link
             to="/signup"
-            className="font-medium text-sky-400 hover:text-sky-300"
+            className="font-medium text-sky-400 hover:text-sky-300 hover:underline transition-colors"
           >
             Sign up here
           </Link>
