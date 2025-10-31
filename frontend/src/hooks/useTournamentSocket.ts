@@ -1,11 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import io, { Socket } from "socket.io-client";
-import { User as AuthUser } from "../contexts/AuthContext"; // Assuming User type from AuthContext
+import {type User as AuthUser } from "../contexts/AuthContext"; // Assuming User type from AuthContext
 
-const SOCKET_SERVER_URL =
-  process.env.NODE_ENV === "development"
-    ? "http://localhost:4000" // Your backend URL
-    : "YOUR_PRODUCTION_BACKEND_URL";
+const SOCKET_SERVER_URL = import.meta.env.DEV ? "http://localhost:4000" : "YOUR_PRODUCTION_BACKEND_URL";
+
 
 // Types for Tournament Hall (should align with backend)
 export interface HallParticipant {
@@ -247,7 +245,7 @@ export const useTournamentSocket = (
                     participants: [],
                   }), // sensible defaults
                   tournamentDetails: response.tournamentDetails,
-                  organizerId: response.tournamentDetails.organizerId, // ensure organizerId is set in hallState
+                  organizerId: response.tournamentDetails?.organizerId || "", // ensure organizerId is set in hallState
                 }));
               }
             } else {

@@ -1,4 +1,3 @@
-import React from "react";
 import Editor from "@monaco-editor/react";
 
 interface Props {
@@ -18,8 +17,8 @@ export default function CodeEditor({ language, value, onChange }: Props) {
 
   return (
     <Editor
-      height="100%"
-      width="100%"
+      height="100vh"
+      width="100vh"
       defaultLanguage={language}
       language={language}
       value={value}

@@ -1,12 +1,9 @@
-// frontend/src/hooks/useDuelSocket.ts
 import { useEffect, useState, useRef, useCallback } from "react";
 import io, { Socket } from "socket.io-client";
-import { User as AuthUser } from "../contexts/AuthContext"; // From AuthContext
+import {type User as AuthUser } from "../contexts/AuthContext"; // From AuthContext
 
-const SOCKET_SERVER_URL =
-  process.env.NODE_ENV === "development"
-    ? "http://localhost:4000"
-    : "YOUR_PRODUCTION_BACKEND_URL";
+const SOCKET_SERVER_URL = import.meta.env.DEV ? "http://localhost:4000" : "YOUR_PRODUCTION_BACKEND_URL";
+
 
 export type CompetitorRole = "competitor1" | "competitor2";
 export type UserRole = CompetitorRole | "spectator";
@@ -25,6 +22,7 @@ export interface CompetitorState {
   language: string;
   solvedProblem?: boolean;
   submissionTime?: number;
+  socketId?: string;
 }
 
 export interface Problem {

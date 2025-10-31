@@ -144,7 +144,7 @@ export const useWebRTC = (
         } else {
           // Fallback for older browsers or specific scenarios
           const newStream = new MediaStream();
-          event.tracks.forEach((track) => newStream.addTrack(track));
+          newStream.addTrack(event.track);
           setRemoteStream(newStream);
         }
       };

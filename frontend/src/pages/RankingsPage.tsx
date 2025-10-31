@@ -1,4 +1,3 @@
-import React from "react";
 import { BarChart, Crown, ShieldAlert, UserCircle } from "lucide-react";
 
 const dummyRankings = [
@@ -94,7 +93,7 @@ export default function RankingsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700/70 bg-gray-800">
-            {dummyRankings.map((player, index) => (
+            {dummyRankings.map((player) => (
               <tr
                 key={player.username}
                 className="hover:bg-gray-700/40 transition-colors"

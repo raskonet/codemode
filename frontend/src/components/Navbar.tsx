@@ -1,4 +1,3 @@
-import React from "react";
 import { Link, NavLink } from "react-router-dom";
 import {
   User,
@@ -9,7 +8,6 @@ import {
   Swords,
   Trophy,
   Hammer,
-  LayoutDashboard,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 

@@ -1,17 +1,13 @@
-// frontend/src/contexts/AuthContext.tsx
-import React, {
+import  {
   createContext,
   useState,
-  ReactNode,
+  type ReactNode,
   useEffect,
   useCallback,
 } from "react";
-// NO LONGER IMPORTING useNavigate HERE at the top level of the file for AuthProvider
 // import { useNavigate } from "react-router-dom";
 import { useApolloClient, gql } from "@apollo/client";
 
-// --- GraphQL Operations (ME_QUERY, SIGNUP_MUTATION, LOGIN_MUTATION, LOGOUT_MUTATION) ---
-// (These remain the same as in the previous correct version)
 const ME_QUERY = gql`
   query Me {
     me {
@@ -57,7 +53,6 @@ const LOGOUT_MUTATION = gql`
   }
 `;
 
-// --- Types ---
 export interface User {
   id: string;
   username: string;
@@ -69,7 +64,6 @@ export interface User {
 export interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
-  // Functions now return promises that resolve to the user or a success boolean
   loginUser: (vars: {
     emailOrUsername: string;
     password: string;
@@ -95,7 +89,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [authError, setAuthError] = useState<string | null>(null);
 
   const client = useApolloClient();
-  // const navigate = useNavigate(); // DO NOT CALL useNavigate() HERE
+  // const navigate = useNavigate(); 
 
   const fetchCurrentUser = useCallback(async () => {
     setIsLoadingAuth(true);
@@ -146,7 +140,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       if (data && data.login && data.login.user) {
         setUser(data.login.user);
-        // The component calling loginUser will handle navigation.
         return data.login.user;
       }
     } catch (error: any) {

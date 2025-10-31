@@ -1,4 +1,3 @@
-import React from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -16,9 +15,9 @@ export default function ProfilePage() {
   const isOwnProfile =
     !routeUserId || (authUser && routeUserId === authUser.id);
   const displayedUser = isOwnProfile ? authUser : null; // Simplification: only show full details for own profile for now
-  const profileTitle = isOwnProfile
-    ? authUser?.username
-    : `User ${routeUserId}`;
+ // const profileTitle = isOwnProfile
+ //   ? authUser?.username
+  //  : `User ${routeUserId}`;
 
   if (isLoadingAuth) {
     return (

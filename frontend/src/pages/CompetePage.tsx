@@ -1,15 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { gql, useMutation } from "@apollo/client";
 import toast from "react-hot-toast";
 
 import { useAuth } from "../hooks/useAuth";
-import { User } from "../contexts/AuthContext";
 
 import {
   useDuelSocket,
-  CompetitorRole,
-  Problem as DuelProblemType,
+  type CompetitorRole,
 } from "../hooks/useDuelSocket";
 
 import { useWebRTC } from "../hooks/useWebRTC";
@@ -27,26 +25,17 @@ import {
   XCircle,
 } from "lucide-react";
 
-interface TestCase {
-  stdin: string;
-  expected: string;
-}
-interface CodeSnippet {
-  lang: string;
-  langSlug: string;
-  code: string;
-}
-interface TestDetail {
-  index: number;
-  status: string;
-  stdout: string | null;
-  stderr: string | null;
-  time: number | null;
-  memory: number | null;
-}
+// This interface defines the structure of the submission result from the backend
 interface JudgeResult {
   passed: boolean;
-  details: TestDetail[];
+  details: {
+    index: number;
+    status: string;
+    stdout: string | null;
+    stderr: string | null;
+    time: number | null;
+    memory: number | null;
+  }[];
 }
 
 const JUDGE_SUBMISSION = gql`
@@ -144,9 +133,9 @@ export default function CompetePage() {
   } = useDuelSocket(duelIdFromParams);
 
   const rtcPeer1 = useWebRTC(socket, socket?.id);
-  const rtcPeer2 = useWebRTC(socket, socket?.id); // For spectator to competitor 2 or competitor to spectator 2
+  const rtcPeer2 = useWebRTC(socket, socket?.id);
   const [isCameraOn, setIsCameraOn] = useState(false);
-  const [hasVideoFeature] = useState(true); // Set to true to enable video features
+  const [hasVideoFeature] = useState(true);
 
   const [myCode, setMyCode] = useState<string>(initialCodeSamples["cpp"]);
   const [myLanguage, setMyLanguage] = useState<SupportedLanguage>("cpp");
@@ -157,7 +146,7 @@ export default function CompetePage() {
   const [judgeSubmission, { loading: isSubmitting }] = useMutation<{
     judgeSubmission: JudgeResult;
   }>(JUDGE_SUBMISSION, {
-    onCompleted: async (data) => {
+    onCompleted: (data) => {
       setSubmissionResult(data.judgeSubmission);
       toast.success(
         data.judgeSubmission.passed
@@ -193,7 +182,6 @@ export default function CompetePage() {
     },
   });
 
-  const currentDuelProblem = duelRoomState?.problem;
   const isCompetitor =
     assignedRoleAndUser?.role === "competitor1" ||
     assignedRoleAndUser?.role === "competitor2";
@@ -278,6 +266,7 @@ export default function CompetePage() {
     authenticatedUser,
     myLanguage,
     isLoadingAuth,
+    myCode, // Added myCode to dependencies to prevent stale closures
   ]);
 
   const toggleCamera = async () => {
@@ -341,8 +330,8 @@ export default function CompetePage() {
     authenticatedUser,
     assignedRoleAndUser,
     duelRoomState?.competitors,
-    rtcPeer1,
     isCameraOn,
+    rtcPeer1, // rtcPeer1 is an object, so this dependency is fine
   ]);
 
   useEffect(() => {
@@ -390,7 +379,6 @@ export default function CompetePage() {
         rtcPeer1.localStream &&
         data.duelId === duelIdFromParams
       ) {
-        // Use rtcPeer2 for competitor-to-spectator. A real app would map connections.
         if (
           !rtcPeer2.isCallInProgress ||
           !rtcPeer2.peerConnection.current?.remoteDescription
@@ -411,9 +399,9 @@ export default function CompetePage() {
     authenticatedUser,
     assignedRoleAndUser,
     duelRoomState?.competitors,
-    rtcPeer1,
-    rtcPeer2,
     isCameraOn,
+    rtcPeer1, // Dependency on rtcPeer1 object
+    rtcPeer2, // Dependency on rtcPeer2 object
   ]);
 
   const handleJoinDuel = () => {
@@ -922,8 +910,7 @@ export default function CompetePage() {
             duelIdFromParams && (
               <div className="flex items-center justify-center text-gray-400 md:col-span-1 p-10 text-center">
                 <Loader2 className="h-8 w-8 animate-spin mr-3 text-sky-400" />{" "}
-                Attempting to join duel as competitor... ensure you are logged
-                in.
+                Attempting to join duel...
               </div>
             )}
         </div>
@@ -932,7 +919,7 @@ export default function CompetePage() {
         <div className="fixed bottom-0 left-0 right-0 p-3 md:p-4 bg-gray-700/95 backdrop-blur-sm border-t-2 border-gray-600 shadow-2xl max-h-48 md:max-h-64 overflow-y-auto z-[60]">
           <button
             onClick={() => setSubmissionResult(null)}
-            className="absolute top-2 right-3 text-gray-400 hover:text-white text-3xl font-thin leading-none"
+            className="absolute top-2 right-3 text-gray-400 hover:text-white"
             aria-label="Close submission panel"
           >
             <XCircle size={20} />
@@ -986,7 +973,7 @@ export default function CompetePage() {
                 Winner:{" "}
                 <span className="text-green-400 font-bold">
                   {usersInRoom.find((u) => u.userId === duelRoomState.winner)
-                    ?.username || duelRoomState.winner}
+                    ?.username || '...'}
                 </span>
               </p>
             ) : (
@@ -996,7 +983,7 @@ export default function CompetePage() {
               <p className="text-sm text-red-400">
                 (User{" "}
                 {usersInRoom.find((u) => u.userId === duelRoomState.forfeitedBy)
-                  ?.username || duelRoomState.forfeitedBy}{" "}
+                  ?.username || '...'}{" "}
                 forfeited)
               </p>
             )}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { gql, useQuery } from "@apollo/client";
 import { useTournamentSocket } from "../hooks/useTournamentSocket";
@@ -12,7 +12,6 @@ import {
   Crown,
   Info,
   Eye,
-  AlertTriangle,
   Swords,
   CalendarDays,
   Video as VideoIcon,
@@ -49,13 +48,14 @@ const GET_TOURNAMENT_DETAILS_QUERY = gql`
   }
 `;
 
+// Interface for the detailed data fetched via GraphQL
 interface TournamentPageData {
   id: string;
   name: string;
   status: string;
   pairingSystem: string;
   organizer: { id: string; username: string };
-  maxParticipants?: number | null;
+  maxParticipants: number | null;
   hasVideo: boolean;
   problemSetType: string;
   curatedProblemIds: string[];
@@ -64,6 +64,14 @@ interface TournamentPageData {
     user: { id: string; username: string; rating: number };
     isActive: boolean;
   }>;
+}
+
+// A unified participant type that can be derived from either GQL or Socket
+interface UnifiedParticipant {
+  userId: string;
+  username: string;
+  rating: number;
+  socketId: string;
 }
 
 export default function TournamentHallPage() {
@@ -80,7 +88,6 @@ export default function TournamentHallPage() {
     { variables: { tournamentId }, skip: !tournamentId },
   );
 
-  const socketHook = useTournamentSocket(tournamentId, authUser);
   const {
     isConnected,
     hallState,
@@ -90,9 +97,53 @@ export default function TournamentHallPage() {
     kickParticipant,
     startNextRound,
     clearLastInvitation,
-  } = socketHook;
+  } = useTournamentSocket(tournamentId, authUser);
 
   const [showKickConfirm, setShowKickConfirm] = useState<string | null>(null);
+
+  // Safely get the most up-to-date tournament details
+  const currentTournamentDetails = useMemo(() => {
+    return hallState?.tournamentDetails || gqlTournamentData?.getTournament;
+  }, [hallState, gqlTournamentData]);
+
+  // NORMALIZE ORGANIZER INFO: Create a unified structure for the organizer
+  const organizerInfo = useMemo(() => {
+    if (!currentTournamentDetails) return null;
+    // Case 1: Data is from GQL (`TournamentPageData`)
+    if ('organizer' in currentTournamentDetails && currentTournamentDetails.organizer) {
+        return currentTournamentDetails.organizer;
+    }
+    // Case 2: Data is from Socket (`TournamentDetailsBase`)
+    if ('organizerId' in currentTournamentDetails) {
+        return {
+            id: currentTournamentDetails.organizerId,
+            username: currentTournamentDetails.organizerUsername || 'Organizer',
+        };
+    }
+    return null;
+  }, [currentTournamentDetails]);
+
+  // Create a unified list of participants, prioritizing the live socket data
+  const participants: UnifiedParticipant[] = useMemo(() => {
+    if (hallState?.participants && hallState.participants.length > 0) {
+      return hallState.participants;
+    }
+    if (gqlTournamentData?.getTournament.participants) {
+      return gqlTournamentData.getTournament.participants
+        .filter((p) => p.isActive)
+        .map((p) => ({
+          ...p.user,
+          userId: p.user.id,
+          socketId: "",
+        }));
+    }
+    return [];
+  }, [hallState?.participants, gqlTournamentData]);
+
+  const isOrganizer = useMemo(() => {
+    return authUser && organizerInfo && authUser.id === organizerInfo.id;
+  }, [authUser, organizerInfo]);
+
 
   useEffect(() => {
     if (duelInvitations.length > 0) {
@@ -165,7 +216,7 @@ export default function TournamentHallPage() {
         Error loading tournament: {gqlError.message}
       </div>
     );
-  if (hallError && (!hallState || hallState.tournamentId !== tournamentId)) {
+  if (hallError) {
     return (
       <div className="text-center p-10 text-red-400 text-lg">
         Error in tournament hall: {hallError}
@@ -173,32 +224,13 @@ export default function TournamentHallPage() {
     );
   }
 
-  const currentTournamentDetails =
-    hallState?.tournamentDetails || gqlTournamentData?.getTournament;
-  const participants =
-    hallState?.participants ||
-    gqlTournamentData?.getTournament.participants
-      .filter((p) => p.isActive)
-      .map((p) => ({ ...p.user, socketId: "" /* socketId not from GQL */ })) ||
-    [];
-  const isOrganizer =
-    authUser &&
-    currentTournamentDetails &&
-    authUser.id === currentTournamentDetails.organizer.id;
-
   if (!currentTournamentDetails) {
-    if (!gqlLoading && !isLoadingAuth)
       return (
-        <div className="text-center p-10 text-orange-400 text-lg">
-          Tournament not found or unable to load details.
+        <div className="text-center p-10">
+          <Loader2 className="h-16 w-16 animate-spin mx-auto text-sky-400" />
+          <p className="mt-3 text-lg">Fetching details...</p>
         </div>
       );
-    return (
-      <div className="text-center p-10">
-        <Loader2 className="h-16 w-16 animate-spin mx-auto text-sky-400" />
-        <p className="mt-3 text-lg">Fetching details...</p>
-      </div>
-    );
   }
 
   const statusColors: Record<string, string> = {
@@ -219,7 +251,7 @@ export default function TournamentHallPage() {
             <p className="text-sm text-gray-400">
               Organized by:{" "}
               <span className="font-medium text-gray-300">
-                {currentTournamentDetails.organizer.username}
+                {organizerInfo?.username || '...'}
               </span>
             </p>
           </div>
@@ -241,11 +273,13 @@ export default function TournamentHallPage() {
           {hallError && (
             <span className="text-red-400">Error: {hallError}</span>
           )}
-          <span className="flex items-center">
-            <CalendarDays size={12} className="mr-1" />
-            Created:{" "}
-            {new Date(currentTournamentDetails.createdAt).toLocaleDateString()}
-          </span>
+           { 'createdAt' in currentTournamentDetails && (
+            <span className="flex items-center">
+                <CalendarDays size={12} className="mr-1" />
+                Created:{" "}
+                {new Date(currentTournamentDetails.createdAt).toLocaleDateString()}
+            </span>
+           )}
         </div>
       </header>
 
@@ -265,14 +299,13 @@ export default function TournamentHallPage() {
                   onClick={() => startNextRound(currentTournamentDetails.id)}
                   disabled={
                     participants.length < 2 &&
-                    currentTournamentDetails.pairingSystem === "RANDOM"
-                  } // Simple check, Swiss needs more
+                    'pairingSystem' in currentTournamentDetails && currentTournamentDetails.pairingSystem === "RANDOM"
+                  }
                   className="btn btn-success flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Play size={18} className="mr-2" /> Start First Round
                 </button>
-                {participants.length < 2 &&
-                  currentTournamentDetails.pairingSystem === "RANDOM" && (
+                {participants.length < 2 && 'pairingSystem' in currentTournamentDetails && currentTournamentDetails.pairingSystem === "RANDOM" && (
                     <p className="text-xs text-yellow-300 mt-1.5">
                       Need at least 2 participants for random pairing.
                     </p>
@@ -282,8 +315,7 @@ export default function TournamentHallPage() {
             {currentTournamentDetails.status === "ACTIVE" && (
               <p className="text-blue-300 text-sm">
                 <Info size={16} className="inline mr-1.5" /> Tournament is
-                active. Advanced round controls (e.g., for Swiss) are under
-                development.
+                active.
               </p>
             )}
           </div>
@@ -299,89 +331,88 @@ export default function TournamentHallPage() {
               : ""}
             )
           </h2>
-          {participants.length === 0 && (
+          {participants.length === 0 ? (
             <p className="text-gray-500 italic">
               No participants yet. Waiting for duelists...
             </p>
-          )}
-          <ul className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
-            {participants.map((p) => (
-              <li
-                key={p.userId}
-                className="flex justify-between items-center bg-gray-700/60 p-3 rounded-lg shadow-sm hover:bg-gray-700 transition-colors"
-              >
-                <div className="flex items-center">
-                  {p.userId === currentTournamentDetails.organizer.id && (
-                    <Crown
-                      size={16}
-                      className="mr-2 text-yellow-400"
-                      title="Organizer"
-                    />
-                  )}
-                  <span className="font-medium text-gray-200">
-                    {p.username}
-                  </span>
-                  <span className="text-xs text-gray-400 ml-2">
-                    ({p.rating} Elo)
-                  </span>
-                </div>
-                {isOrganizer &&
-                  authUser &&
-                  p.userId !== authUser.id &&
-                  (currentTournamentDetails.status === "PENDING" ||
-                    currentTournamentDetails.status === "ACTIVE") && (
-                    <button
-                      onClick={() => setShowKickConfirm(p.userId)}
-                      className="text-red-500 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
-                      title={`Kick ${p.username}`}
-                    >
-                      <UserX size={18} />
-                    </button>
-                  )}
-              </li>
-            ))}
-          </ul>
-          {showKickConfirm && (
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-              <div className="bg-gray-800 p-6 rounded-lg shadow-xl border border-red-600 max-w-sm w-full">
-                <h3 className="text-lg font-semibold mb-4 text-red-300">
-                  Confirm Kick
-                </h3>
-                <p className="mb-6 text-gray-300">
-                  Are you sure you want to kick participant{" "}
-                  <span className="font-bold">
-                    {
-                      participants.find((par) => par.userId === showKickConfirm)
-                        ?.username
-                    }
-                  </span>
-                  ?
-                </p>
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => setShowKickConfirm(null)}
-                    className="btn btn-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      kickParticipant(
-                        currentTournamentDetails.id,
-                        showKickConfirm,
-                      );
-                      setShowKickConfirm(null);
-                      toast.success("Participant kicked.");
-                    }}
-                    className="btn btn-danger"
-                  >
-                    Yes, Kick
-                  </button>
-                </div>
-              </div>
-            </div>
+          ) : (
+            <ul className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
+              {participants.map((p) => (
+                <li
+                  key={p.userId}
+                  className="flex justify-between items-center bg-gray-700/60 p-3 rounded-lg shadow-sm hover:bg-gray-700 transition-colors"
+                >
+                  <div className="flex items-center">
+                    {p.userId === organizerInfo?.id && (
+                      <Crown
+                        size={16}
+                        className="mr-2 text-yellow-400"
+                      />
+                    )}
+                    <span className="font-medium text-gray-200">
+                      {p.username}
+                    </span>
+                    <span className="text-xs text-gray-400 ml-2">
+                      ({p.rating} Elo)
+                    </span>
+                  </div>
+                  {isOrganizer && authUser && p.userId !== authUser.id && (
+                      <button
+                        onClick={() => setShowKickConfirm(p.userId)}
+                        className="text-red-500 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
+                        title={`Kick ${p.username}`}
+                      >
+                        <UserX size={18} />
+                      </button>
+                    )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+
+        {showKickConfirm && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-xl border border-red-600 max-w-sm w-full">
+              <h3 className="text-lg font-semibold mb-4 text-red-300">
+                Confirm Kick
+              </h3>
+              <p className="mb-6 text-gray-300">
+                Are you sure you want to kick participant{" "}
+                <span className="font-bold">
+                  {
+                    participants.find((par) => par.userId === showKickConfirm)
+                      ?.username
+                  }
+                </span>
+                ?
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowKickConfirm(null)}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (showKickConfirm) {
+                        kickParticipant(
+                            currentTournamentDetails.id,
+                            showKickConfirm,
+                        );
+                        setShowKickConfirm(null);
+                        toast.success("Participant kicked.");
+                    }
+                  }}
+                  className="btn btn-danger"
+                >
+                  Yes, Kick
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="lg:col-span-2 card bg-gray-800 p-5 rounded-xl shadow-lg border border-gray-700">
           <h2 className="text-2xl font-semibold mb-4 text-gray-100">
@@ -434,7 +465,7 @@ export default function TournamentHallPage() {
           {currentTournamentDetails.status === "COMPLETED" && (
             <p className="text-green-400 font-semibold text-lg">
               <Crown size={20} className="inline mr-1.5" /> Tournament
-              Completed! Check final standings.
+              Completed!
             </p>
           )}
 
@@ -458,7 +489,7 @@ export default function TournamentHallPage() {
                 {currentTournamentDetails.problemSetType.replace(/_/g, " ")}
               </p>
               {currentTournamentDetails.problemSetType === "CURATED" &&
-                currentTournamentDetails.curatedProblemIds.length > 0 && (
+                'curatedProblemIds' in currentTournamentDetails && currentTournamentDetails.curatedProblemIds.length > 0 && (
                   <p className="sm:col-span-2">
                     IDs:{" "}
                     <span className="text-gray-300">
@@ -466,10 +497,12 @@ export default function TournamentHallPage() {
                     </span>
                   </p>
                 )}
-              <p className="flex items-center">
-                <Users size={14} className="mr-1.5 text-sky-400" />
-                Pairing: {currentTournamentDetails.pairingSystem}
-              </p>
+              { 'pairingSystem' in currentTournamentDetails && (
+                <p className="flex items-center">
+                    <Users size={14} className="mr-1.5 text-sky-400" />
+                    Pairing: {currentTournamentDetails.pairingSystem}
+                </p>
+              )}
             </div>
           </div>
         </div>

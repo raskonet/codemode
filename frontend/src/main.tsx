@@ -1,24 +1,21 @@
-// frontend/src/main.tsx
 import React from "react";
 import {
   ApolloClient,
   InMemoryCache,
   ApolloProvider,
   createHttpLink,
-} from "@apollo/client"; // Added createHttpLink
+} from "@apollo/client";
 import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
-import { AuthProvider } from "./contexts/AuthContext"; // Assuming App.tsx wraps with this
 import "./index.css";
 
-// Create an HTTP link that includes credentials
 const httpLink = createHttpLink({
   uri: "http://localhost:4000/graphql",
-  credentials: "include", // <<< THIS IS THE CRUCIAL PART
+  credentials: "include",
 });
 
 const client = new ApolloClient({
-  link: httpLink, // Use the configured link
+  link: httpLink,
   cache: new InMemoryCache(),
 });
 
